@@ -1,0 +1,102 @@
+[
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "Не удалось загрузить прогресс: SyntaxError: Unexpected token 'o', \"not-json\" is not valid JSON\n    at JSON.parse (<anonymous>)\n    at loadProgress (<anonymous>:584:25)\n    at <anonymous>:292:16",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  },
+  {
+    "type": "warning",
+    "text": "<link rel=preload> has an invalid `href` value",
+    "test_url": "set_content"
+  }
+]

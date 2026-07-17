@@ -1,0 +1,33 @@
+[PASS] DYN-001 Чистый запуск через изолированный браузерный harness: Главное меню отображено; game.js инициализирован
+[PASS] DYN-002 Инициализация JavaScript: Глобальные функции/состояние доступны, инициализация завершена
+[PASS] DYN-003 Автовыбор английской локализации: navigator.language=en-US → English UI
+[PASS] DYN-004 Русская локализация и карта языковых кодов: ru UI; mapping=['ru', 'ru', 'ru', 'en']
+[PASS] DYN-005 Ежедневная награда: однократное получение и persistence: +3 и сохранено, stars=3
+[PASS] DYN-006 Навигация Меню → Мастерская → Меню: counts=[3, 3, 4, 3]; возврат в меню
+[PASS] DYN-007 Клавиатурная навигация по меню: Фокус: ['dailyRewardButton', 'playButton', 'upgradesButton', '', 'dailyRewardButton', 'playButton', 'upgradesButton', '']
+[PASS] DYN-008 Начало нового раунда: {'screen': 'game', 'running': True, 'score': 0, 'lives': 3, 'combo': 1}
+[PASS] DYN-009 Граничные значения координат указателя: {'tx': 20, 'ty': 20}; {'tx': 1004, 'ty': 748, 'w': 1024, 'h': 768}
+[PASS] DYN-010 Системная пауза/возобновление: {'running': False, 'reason': 'window'}->{'running': True, 'reason': ''}
+[PASS] DYN-011 5 хороших мыслей и повышение combo: {'score': 50, 'combo': 2, 'streak': 5, 'max': 2}
+[PASS] DYN-012 Вредная мысль без щита: {'lives': 2, 'combo': 1, 'streak': 0}
+[PASS] DYN-013 Щит блокирует вредную мысль: {'lives': 3, 'shield': False}
+[PASS] DYN-014 Золотая мысль: очки и бонус: {'score': 50, 't': [6, 0, 0]}
+[PASS] DYN-015 Комбинация x2 и combo x2: 40
+[PASS] DYN-016 Поражение и экран результата: {'screen': 'gameOver', 'running': False, 'best': 250, 'earned': 2}
+[PASS] DYN-017 Перезапуск после поражения: {'screen': 'game', 'running': True, 'score': 0, 'lives': 3, 'combo': 1}
+[PASS] DYN-018 Невалидный JSON сохранения: {'best': 0, 'stars': 0, 'screen': 'menu'}
+[PASS] DYN-019 Сохранение mute-настройки: soundMuted persisted; aria-label=Включить звук
+[PASS] DYN-020 Расход стартовых бустеров: {'b': {'magnetStart': 0, 'shield': 0, 'doubleStart': 0}, 'magnet': 5.933999999999999, 'shield': True, 'double': 7.933999999999999}
+[PASS] DYN-021 Выход в меню после активации бустеров: Выход без подтверждения; бустеры не возвращены
+[PASS] DYN-022 Rewarded revive при отсутствующем Yandex SDK: {'pre': {'sdk': None, 'screen': 'gameOver', 'running': False, 'revived': False, 'lives': 0, 'buttonHidden': False, 'buttonDisabled': False}, 'after': {'sdk': None, 'screen': 'game', 'running': True, 'revived': True, 'lives': 1}}
+[PASS] DYN-023 Rewarded x2 звезд при отсутствующем Yandex SDK: без SDK stars 2->4, bonus=2
+[PASS] DYN-024 Пылесос у левой границы: {'x': 24.092769745848912, 'tx': 20, 'radius': 36}
+[PASS] DYN-025 Стресс update-loop (~100 секунд симулированного времени): simulated elapsed=99.9s, score=0
+[PASS] DYN-026 Структурно поврежденное сохранение: null в dailyTasks: pageerror=[{'error': "Cannot read properties of null (reading 'id')", 'test_url': 'set_content'}]
+[PASS] DYN-027 Мастерская при 320x568: {'screenScroll': 568, 'screenClient': 568, 'panelScroll': 2418, 'panelClient': 542, 'backVisible': True}
+[PASS] DYN-028 Мастерская при 360x640: {'screenScroll': 640, 'screenClient': 640, 'panelScroll': 2358, 'panelClient': 614, 'backVisible': True}
+[PASS] DYN-029 Мастерская при 768x1024: {'screenScroll': 1024, 'screenClient': 1024, 'panelScroll': 1568, 'panelClient': 986, 'backVisible': True}
+[PASS] DYN-030 Мастерская при 1366x768: {'screenScroll': 768, 'screenClient': 768, 'panelScroll': 1568, 'panelClient': 730, 'backVisible': True}
+[PASS] DYN-031 Мастерская при 1920x1080: {'screenScroll': 1080, 'screenClient': 1080, 'panelScroll': 1568, 'panelClient': 1042, 'backVisible': True}
+[PASS] DYN-032 Сенсорная прокрутка мастерской 360×640: scrollTop 0->451
+{"summary": {"PASS": 32, "FAIL": 0, "BLOCKED": 0, "NOT_RUN": 0}}

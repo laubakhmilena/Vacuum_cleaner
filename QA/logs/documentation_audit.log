@@ -1,0 +1,23 @@
+[PASS] Обязательные документы: root MD=29, missing=none
+[PASS] Чек-листы: count=20
+[PASS] CSV-файлы: count=3
+[PASS] Схема test cases: fields=21
+[PASS] Уникальность test case IDs: rows=83, unique=83
+[PASS] Обязательные поля test cases: {'Test Case ID': 0, 'Feature ID': 0, 'Risk ID': 0, 'Module': 0, 'Title': 0, 'Objective': 0, 'Preconditions': 0, 'Steps': 0, 'Expected Result': 0, 'Status': 0, 'Priority': 0, 'Test Type': 0, 'Test Technique': 0, 'Platform': 0, 'Build': 0, 'Environment': 0}
+[PASS] Допустимые статусы test cases: {'PASS': 27, 'FAIL': 5, 'BLOCKED': 2, 'NOT_RUN': 49}
+[PASS] Количество test cases: count=83
+[PASS] Feature references: features=25, missing=none
+[PASS] Risk references: risks=30, missing=none
+[PASS] Traceability coverage: rows=25, missing=[], unknown=[]
+[PASS] Bug IDs: count=4, ids=['BUG-001', 'BUG-002', 'BUG-003', 'BUG-004']
+[PASS] Bug severity totals: {'S2 — Critical': 2, 'S4 — Minor': 1, 'S3 — Major': 1}
+[PASS] Bug evidence links: refs=8, missing=none
+[PASS] Checklist table schema: rows=200, malformed=none
+[PASS] Checklist statuses: invalid=none
+[PASS] Checklist expected results: generic placeholders=none
+[PASS] Незаполненные placeholders: files=none
+[PASS] Локальные Markdown-ссылки: broken=none
+[PASS] Исходные файлы не изменены: changed=none
+[PASS] Execution report metrics: expected={'Passed': 27, 'Failed': 5, 'Blocked': 2, 'Not Run': 49}, missing=none
+
+SUMMARY {"checks": 21, "passed": 21, "failed": 0, "root_markdown": 29, "csv": 3, "checklists": 20, "checklist_rows": 200, "test_cases": 83, "test_statuses": {"PASS": 27, "FAIL": 5, "BLOCKED": 2, "NOT_RUN": 49}, "features": 25, "risks": 30, "bugs": 4, "evidence_files": 19, "log_files": 10}

@@ -1,0 +1,290 @@
+[
+  {
+    "id": "DYN-001",
+    "name": "Чистый запуск через изолированный браузерный harness",
+    "status": "PASS",
+    "actual": "Главное меню отображено; game.js инициализирован",
+    "expected": "Меню активно, фатальных ошибок нет",
+    "evidence": "evidence/EV-001_menu_1024x768.png",
+    "time_utc": "2026-07-17T12:04:28.205413+00:00"
+  },
+  {
+    "id": "DYN-002",
+    "name": "Инициализация JavaScript",
+    "status": "PASS",
+    "actual": "Глобальные функции/состояние доступны, инициализация завершена",
+    "expected": "startGame/progress/game доступны",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:28.214369+00:00"
+  },
+  {
+    "id": "DYN-003",
+    "name": "Автовыбор английской локализации",
+    "status": "PASS",
+    "actual": "navigator.language=en-US → English UI",
+    "expected": "Английский UI и document.lang=en",
+    "evidence": "evidence/EV-002_menu_en.png",
+    "time_utc": "2026-07-17T12:04:29.086233+00:00"
+  },
+  {
+    "id": "DYN-004",
+    "name": "Русская локализация и карта языковых кодов",
+    "status": "PASS",
+    "actual": "ru UI; mapping=['ru', 'ru', 'ru', 'en']",
+    "expected": "ru/be/kk/uk/uz→ru, прочие→en",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:29.651265+00:00"
+  },
+  {
+    "id": "DYN-005",
+    "name": "Ежедневная награда: однократное получение и persistence",
+    "status": "PASS",
+    "actual": "+3 и сохранено, stars=3",
+    "expected": "+3, повторно недоступно",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:30.919530+00:00"
+  },
+  {
+    "id": "DYN-006",
+    "name": "Навигация Меню → Мастерская → Меню",
+    "status": "PASS",
+    "actual": "counts=[3, 3, 4, 3]; возврат в меню",
+    "expected": "3 улучшения, 3 бустера, 4 скина, 3 задания",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:31.365891+00:00"
+  },
+  {
+    "id": "DYN-007",
+    "name": "Клавиатурная навигация по меню",
+    "status": "PASS",
+    "actual": "Фокус: ['dailyRewardButton', 'playButton', 'upgradesButton', '', 'dailyRewardButton', 'playButton', 'upgradesButton', '']",
+    "expected": "Tab достигает основных кнопок",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:31.930425+00:00"
+  },
+  {
+    "id": "DYN-008",
+    "name": "Начало нового раунда",
+    "status": "PASS",
+    "actual": "{'screen': 'game', 'running': True, 'score': 0, 'lives': 3, 'combo': 1}",
+    "expected": "0 очков, 3 жизни, x1",
+    "evidence": "evidence/EV-003_game_start.png",
+    "time_utc": "2026-07-17T12:04:32.886015+00:00"
+  },
+  {
+    "id": "DYN-009",
+    "name": "Граничные значения координат указателя",
+    "status": "PASS",
+    "actual": "{'tx': 20, 'ty': 20}; {'tx': 1004, 'ty': 748, 'w': 1024, 'h': 768}",
+    "expected": "20..width/height-20",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:32.891541+00:00"
+  },
+  {
+    "id": "DYN-010",
+    "name": "Системная пауза/возобновление",
+    "status": "PASS",
+    "actual": "{'running': False, 'reason': 'window'}->{'running': True, 'reason': ''}",
+    "expected": "running false→true",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:32.897801+00:00"
+  },
+  {
+    "id": "DYN-011",
+    "name": "5 хороших мыслей и повышение combo",
+    "status": "PASS",
+    "actual": "{'score': 50, 'combo': 2, 'streak': 5, 'max': 2}",
+    "expected": "50 очков, combo x2",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:32.906694+00:00"
+  },
+  {
+    "id": "DYN-012",
+    "name": "Вредная мысль без щита",
+    "status": "PASS",
+    "actual": "{'lives': 2, 'combo': 1, 'streak': 0}",
+    "expected": "-1 жизнь, сброс комбо",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:32.909052+00:00"
+  },
+  {
+    "id": "DYN-013",
+    "name": "Щит блокирует вредную мысль",
+    "status": "PASS",
+    "actual": "{'lives': 3, 'shield': False}",
+    "expected": "Жизнь сохранена, щит расходован",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:32.911629+00:00"
+  },
+  {
+    "id": "DYN-014",
+    "name": "Золотая мысль: очки и бонус",
+    "status": "PASS",
+    "actual": "{'score': 50, 't': [6, 0, 0]}",
+    "expected": "+50 и один таймер бонуса",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:32.914021+00:00"
+  },
+  {
+    "id": "DYN-015",
+    "name": "Комбинация x2 и combo x2",
+    "status": "PASS",
+    "actual": "40",
+    "expected": "40 очков",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:32.916046+00:00"
+  },
+  {
+    "id": "DYN-016",
+    "name": "Поражение и экран результата",
+    "status": "PASS",
+    "actual": "{'screen': 'gameOver', 'running': False, 'best': 250, 'earned': 2}",
+    "expected": "gameOver, 2 звезды за 250",
+    "evidence": "evidence/EV-004_game_over.png",
+    "time_utc": "2026-07-17T12:04:33.252836+00:00"
+  },
+  {
+    "id": "DYN-017",
+    "name": "Перезапуск после поражения",
+    "status": "PASS",
+    "actual": "{'screen': 'game', 'running': True, 'score': 0, 'lives': 3, 'combo': 1}",
+    "expected": "Чистый новый раунд",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:33.299579+00:00"
+  },
+  {
+    "id": "DYN-018",
+    "name": "Невалидный JSON сохранения",
+    "status": "PASS",
+    "actual": "{'best': 0, 'stars': 0, 'screen': 'menu'}",
+    "expected": "Fallback без блокировки запуска",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:33.759275+00:00"
+  },
+  {
+    "id": "DYN-019",
+    "name": "Сохранение mute-настройки",
+    "status": "PASS",
+    "actual": "soundMuted persisted; aria-label=Включить звук",
+    "expected": "Mute сохраняется",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:35.560464+00:00"
+  },
+  {
+    "id": "DYN-020",
+    "name": "Расход стартовых бустеров",
+    "status": "PASS",
+    "actual": "{'b': {'magnetStart': 0, 'shield': 0, 'doubleStart': 0}, 'magnet': 5.933999999999999, 'shield': True, 'double': 7.933999999999999}",
+    "expected": "Все активированы и уменьшены на 1",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:36.365074+00:00"
+  },
+  {
+    "id": "DYN-021",
+    "name": "Выход в меню после активации бустеров",
+    "status": "PASS",
+    "actual": "Выход без подтверждения; бустеры не возвращены",
+    "expected": "Фиксация потенциальной потери расходуемых ресурсов",
+    "evidence": "evidence/EV-005_menu_after_booster_exit.png",
+    "time_utc": "2026-07-17T12:04:36.937887+00:00"
+  },
+  {
+    "id": "DYN-022",
+    "name": "Rewarded revive при отсутствующем Yandex SDK",
+    "status": "PASS",
+    "actual": "{'pre': {'sdk': None, 'screen': 'gameOver', 'running': False, 'revived': False, 'lives': 0, 'buttonHidden': False, 'buttonDisabled': False}, 'after': {'sdk': None, 'screen': 'game', 'running': True, 'revived': True, 'lives': 1}}",
+    "expected": "Награда не должна выдаваться без просмотра; фиксируется фактическое поведение",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:37.998910+00:00"
+  },
+  {
+    "id": "DYN-023",
+    "name": "Rewarded x2 звезд при отсутствующем Yandex SDK",
+    "status": "PASS",
+    "actual": "без SDK stars 2->4, bonus=2",
+    "expected": "Награда не должна выдаваться без просмотра; фиксируется фактическое поведение",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:38.165427+00:00"
+  },
+  {
+    "id": "DYN-024",
+    "name": "Пылесос у левой границы",
+    "status": "PASS",
+    "actual": "{'x': 24.092769745848912, 'tx': 20, 'radius': 36}",
+    "expected": "Скриншот для проверки визуального обрезания",
+    "evidence": "evidence/EV-006_player_at_left_edge.png",
+    "time_utc": "2026-07-17T12:04:39.158072+00:00"
+  },
+  {
+    "id": "DYN-025",
+    "name": "Стресс update-loop (~100 секунд симулированного времени)",
+    "status": "PASS",
+    "actual": "simulated elapsed=99.9s, score=0",
+    "expected": "Нет исключений/NaN; не является FPS/soak",
+    "evidence": "",
+    "time_utc": "2026-07-17T12:04:39.373045+00:00"
+  },
+  {
+    "id": "DYN-026",
+    "name": "Структурно поврежденное сохранение: null в dailyTasks",
+    "status": "PASS",
+    "actual": "pageerror=[{'error': \"Cannot read properties of null (reading 'id')\", 'test_url': 'set_content'}]",
+    "expected": "Ожидается fallback; проверяется startup exception",
+    "evidence": "evidence/EV-007_corrupt_save_startup.png",
+    "time_utc": "2026-07-17T12:04:39.944663+00:00"
+  },
+  {
+    "id": "DYN-027",
+    "name": "Мастерская при 320x568",
+    "status": "PASS",
+    "actual": "{'screenScroll': 568, 'screenClient': 568, 'panelScroll': 2418, 'panelClient': 542, 'backVisible': True}",
+    "expected": "Контент доступен; прокрутка при необходимости",
+    "evidence": "evidence/EV-VP-320x568.png",
+    "time_utc": "2026-07-17T12:04:40.840263+00:00"
+  },
+  {
+    "id": "DYN-028",
+    "name": "Мастерская при 360x640",
+    "status": "PASS",
+    "actual": "{'screenScroll': 640, 'screenClient': 640, 'panelScroll': 2358, 'panelClient': 614, 'backVisible': True}",
+    "expected": "Контент доступен; прокрутка при необходимости",
+    "evidence": "evidence/EV-VP-360x640.png",
+    "time_utc": "2026-07-17T12:04:41.743877+00:00"
+  },
+  {
+    "id": "DYN-029",
+    "name": "Мастерская при 768x1024",
+    "status": "PASS",
+    "actual": "{'screenScroll': 1024, 'screenClient': 1024, 'panelScroll': 1568, 'panelClient': 986, 'backVisible': True}",
+    "expected": "Контент доступен; прокрутка при необходимости",
+    "evidence": "evidence/EV-VP-768x1024.png",
+    "time_utc": "2026-07-17T12:04:42.794146+00:00"
+  },
+  {
+    "id": "DYN-030",
+    "name": "Мастерская при 1366x768",
+    "status": "PASS",
+    "actual": "{'screenScroll': 768, 'screenClient': 768, 'panelScroll': 1568, 'panelClient': 730, 'backVisible': True}",
+    "expected": "Контент доступен; прокрутка при необходимости",
+    "evidence": "evidence/EV-VP-1366x768.png",
+    "time_utc": "2026-07-17T12:04:43.994742+00:00"
+  },
+  {
+    "id": "DYN-031",
+    "name": "Мастерская при 1920x1080",
+    "status": "PASS",
+    "actual": "{'screenScroll': 1080, 'screenClient': 1080, 'panelScroll': 1568, 'panelClient': 1042, 'backVisible': True}",
+    "expected": "Контент доступен; прокрутка при необходимости",
+    "evidence": "evidence/EV-VP-1920x1080.png",
+    "time_utc": "2026-07-17T12:04:45.728409+00:00"
+  },
+  {
+    "id": "DYN-032",
+    "name": "Сенсорная прокрутка мастерской 360×640",
+    "status": "PASS",
+    "actual": "scrollTop 0->451",
+    "expected": "scrollTop увеличивается после свайпа",
+    "evidence": "evidence/EV-008_mobile_touch_scroll.png",
+    "time_utc": "2026-07-17T12:04:47.611766+00:00"
+  }
+]

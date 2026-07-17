@@ -1,0 +1,17 @@
+Run verification log — build TV-cc6576a5764a
+Date: 2026-07-17
+
+1. Intended product launch method
+   Static/Yandex hosting with index.html in root and assets/vacuum_player.png + assets/vacuum_player_data.js.
+
+2. Direct navigation attempts
+   Chromium navigation to local HTTP/file targets was blocked by the execution environment with ERR_BLOCKED_BY_ADMINISTRATOR. This is an environment limitation and was not registered as a product defect.
+
+3. Safe alternative
+   Playwright page.set_content harness loaded the original HTML/CSS/game logic. Product game.js was not edited. The harness only supplied a valid synthetic base URL for URL construction and an in-memory localStorage-compatible backend. Expected asset paths were reconstructed only in QA/work/runtime.
+
+4. Result
+   JavaScript initialization completed for a clean profile. 32 deterministic browser/static-state checks were executed; detailed observations are in tests.log and dynamic_results.json. Product-level mapping: PASS 27, FAIL 5, BLOCKED 2, NOT_RUN 49 across 83 planned test cases.
+
+5. Excluded claims
+   This run does not confirm production package launch, real Yandex SDK/ads, audible audio, FPS, GPU, memory, physical touch devices, Safari/Firefox, or long-session stability.

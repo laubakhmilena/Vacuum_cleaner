@@ -1,0 +1,26 @@
+Build verification started: 2026-07-17T11:52:53+00:00
+Node: v22.16.0
+Python: Python 3.13.5
+Chromium: Chromium 144.0.7559.96 built on Debian GNU/Linux 13 (trixie)
+
+$ node --check game.js
+EXIT=0
+
+$ node --check vacuum_player_data.js
+EXIT=0
+
+$ Python HTML/CSS/resource static validation
+HTML_PARSE=PASS
+ID_COUNT 36 UNIQUE 36 DUPLICATES []
+RESOURCE_REFS [["link", "href", "assets/vacuum_player.png"], ["link", "href", "assets/vacuum_player.png"], ["link", "href", "style.css"], ["script", "src", "/sdk.js"], ["script", "src", "assets/vacuum_player_data.js"], ["img", "src", "assets/vacuum_player.png"], ["script", "src", "game.js"]]
+CSS_BRACES 113 113 PASS
+JS_DOM_IDS 31 MISSING_IN_HTML []
+SOURCE_ROOT_RESOURCE assets/vacuum_player.png EXISTS False
+SOURCE_ROOT_RESOURCE assets/vacuum_player_data.js EXISTS False
+SOURCE_ROOT_RESOURCE style.css EXISTS True
+SOURCE_ROOT_RESOURCE game.js EXISTS True
+RUNTIME_MIRROR_RESOURCE assets/vacuum_player.png EXISTS True
+RUNTIME_MIRROR_RESOURCE assets/vacuum_player_data.js EXISTS True
+RUNTIME_MIRROR_RESOURCE style.css EXISTS True
+RUNTIME_MIRROR_RESOURCE game.js EXISTS True
+Build verification finished: 2026-07-17T11:52:54+00:00
