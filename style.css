@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --text: #253047;
   --muted: #64708a;
   --panel: rgba(255, 255, 255, 0.82);
@@ -7,6 +7,10 @@
   --accent-2: #1fbfa3;
   --gold: #ffc83d;
   --shadow: 0 18px 50px rgba(35, 53, 83, 0.22);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
 
 * {
@@ -30,10 +34,19 @@ body {
   font-family: Inter, "Segoe UI", Arial, sans-serif;
   background: #92dfff;
   overscroll-behavior: none;
-  touch-action: none;
+  touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+}
+
+body[data-starting] {
+  visibility: hidden;
+}
+
+body[data-starting] .screen {
+  visibility: hidden;
+  transition: none;
 }
 
 button {
@@ -102,10 +115,14 @@ button:disabled {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   opacity: 0;
   visibility: hidden;
   transform: translateY(12px);
-  transition: opacity 220ms ease, transform 220ms ease, visibility 220ms ease;
+  /* QA-014: visibility переключается дискретно. Скрытие откладывается на время
+     затухания, а показ происходит мгновенно — иначе новый экран ещё 220ms
+     остаётся visibility:hidden, не принимает фокус и выпадает из a11y-дерева. */
+  transition: opacity 220ms ease, transform 220ms ease, visibility 0s linear 220ms;
   pointer-events: none;
   scrollbar-width: none;
 }
@@ -115,18 +132,40 @@ button:disabled {
   display: none;
 }
 
+/* Главное меню — статичный экран: оно не должно реагировать на вертикальный pan.
+   Длинный экран улучшений остаётся отдельным прокручиваемым контейнером. */
+#menuScreen {
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+#menuScreen .panel {
+  overflow: visible;
+  max-height: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(440px, calc(100% - 32px - var(--safe-left) - var(--safe-right)));
+  transform: translate(-50%, -50%) scale(var(--menu-scale, 1));
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
 .screen-active {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+  transition: opacity 220ms ease, transform 220ms ease, visibility 0s linear 0s;
   pointer-events: auto;
 }
 
 .panel {
   width: min(440px, 100%);
   margin: auto 0;
-  max-height: calc(100vh - 36px);
-  max-height: calc(100dvh - 36px);
+  touch-action: pan-y;
+  min-height: 0;
+  max-height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -217,11 +256,21 @@ h2 {
 .daily-card button {
   width: auto;
   min-width: 82px;
-  min-height: 42px;
+  min-height: 44px;
   padding: 9px 12px;
   color: #7b5600;
   background: #ffd75d;
   font-size: 16px;
+}
+
+.menu-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.menu-actions > button {
+  margin-top: 0;
 }
 
 .panel-head {
@@ -336,7 +385,7 @@ h2 {
 .task-card button {
   width: auto;
   min-width: 84px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 10px;
   color: #ffffff;
   background: var(--accent-2);
@@ -382,7 +431,7 @@ h2 {
 .store-card button {
   width: auto;
   min-width: 84px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 10px;
   color: #ffffff;
   background: var(--accent-2);
@@ -391,6 +440,7 @@ h2 {
 
 .game-ui {
   display: block;
+  touch-action: none;
   padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   overflow: hidden;
 }
@@ -453,10 +503,11 @@ h2 {
 }
 
 .bonus-pill {
-  position: absolute;
-  left: 50%;
-  top: calc(max(12px, env(safe-area-inset-top)) + 76px);
-  transform: translateX(-50%);
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px auto 0;
+  text-align: center;
   border-radius: 999px;
   padding: 9px 15px;
   color: #0c5c50;
@@ -519,8 +570,7 @@ h2 {
   }
 
   .panel {
-    max-height: calc(100vh - 24px);
-    max-height: calc(100dvh - 24px);
+    max-height: 100%;
     padding: 18px;
   }
 
@@ -569,7 +619,7 @@ h2 {
   .game-menu-button {
     width: 100%;
     min-width: 0;
-    min-height: 42px;
+    min-height: 44px;
   }
 
   .sound-toggle-button {
@@ -583,6 +633,43 @@ h2 {
 }
 
 @media (max-width: 340px) {
+  #menuScreen .title-panel {
+    padding: 12px;
+  }
+
+  #menuScreen h1 {
+    margin-bottom: 8px;
+    font-size: 34px;
+  }
+
+  #menuScreen .lead {
+    margin-bottom: 12px;
+    font-size: 15px;
+    line-height: 1.3;
+  }
+
+  #menuScreen .daily-card {
+    margin-top: 8px;
+    padding: 10px;
+  }
+
+  #menuScreen .primary-button {
+    margin-top: 10px;
+  }
+
+  #menuScreen .secondary-button {
+    margin-top: 6px;
+  }
+
+  #menuScreen .menu-actions {
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  #menuScreen .menu-actions > button {
+    margin-top: 0;
+  }
+
   .hud {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -602,8 +689,7 @@ h2 {
   }
 
   .panel {
-    max-height: calc(100vh - 20px);
-    max-height: calc(100dvh - 20px);
+    max-height: 100%;
     padding: 14px;
   }
 
@@ -641,6 +727,15 @@ h2 {
     margin-top: 7px;
   }
 
+  #menuScreen .menu-actions {
+    gap: 7px;
+    margin-top: 10px;
+  }
+
+  #menuScreen .menu-actions > button {
+    margin-top: 0;
+  }
+
   .result-grid {
     margin-top: 10px;
   }
@@ -651,7 +746,7 @@ h2 {
   }
 
   .reward-button {
-    min-height: 42px;
+    min-height: 44px;
     font-size: 14px;
   }
 
@@ -684,7 +779,7 @@ h2 {
 
   .sound-toggle-button,
   .game-menu-button {
-    min-height: 40px;
+    min-height: 44px;
     font-size: 14px;
   }
 }
@@ -695,13 +790,27 @@ h2 {
   }
 
   .panel {
-    max-height: calc(100vh - 20px);
-    max-height: calc(100dvh - 20px);
+    max-height: 100%;
     padding: 16px 22px;
   }
 
   .title-panel {
     width: min(520px, 100%);
+  }
+
+  #menuScreen .title-panel {
+    width: min(620px, calc(100% - 32px - var(--safe-left) - var(--safe-right)));
+    padding: 12px 18px;
+  }
+
+  #menuScreen.has-resumable-round .menu-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #menuScreen .menu-actions > button {
+    min-height: 44px;
+    padding: 9px 10px;
+    font-size: 14px;
   }
 
   h1 {
@@ -727,7 +836,7 @@ h2 {
   }
 
   button {
-    min-height: 42px;
+    min-height: 44px;
     padding: 9px 14px;
     font-size: 15px;
   }
@@ -741,3 +850,124 @@ h2 {
   }
 }
 
+/* Keep all Menu actions in the available iframe, including short browser chrome. */
+@media (max-height: 650px) {
+  #menuScreen .daily-card { grid-template-columns: minmax(0, 1fr) auto; }
+  #menuScreen .daily-card button { width: auto; min-width: 64px; }
+  #menuScreen h1 { font-size: 32px; margin-bottom: 8px; }
+  #menuScreen .lead { font-size: 14px; line-height: 1.25; margin-bottom: 8px; }
+  #menuScreen .title-panel { padding: 12px; }
+  #menuScreen .menu-actions { margin-top: 8px; gap: 6px; }
+  #menuScreen button { min-height: 44px; padding: 8px 10px; }
+}
+
+.screen {
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+  padding-top: max(10px, var(--safe-top));
+  padding-bottom: max(10px, var(--safe-bottom));
+  padding-left: max(10px, var(--safe-left));
+  padding-right: max(10px, var(--safe-right));
+}
+
+
+
+/* ===================== release fix: a11y, reset dialog, ad notice ======== */
+
+/* QA-004: видимый индикатор фокуса не удаляется ни на одном контроле. */
+:focus-visible {
+  outline: 3px solid #1b5fbe;
+  outline-offset: 2px;
+}
+
+.screen[inert] {
+  pointer-events: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  border: 0;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.sr-only:focus-visible {
+  outline-offset: 0;
+}
+
+.danger-button {
+  margin-top: 10px;
+  color: #7d1226;
+  background: #ffe0e6;
+}
+
+/* QA-001: понятная обратная связь, когда реклама недоступна или не досмотрена. */
+.ad-notice {
+  margin: 12px 0 0;
+  border: 1px solid rgba(240, 62, 99, 0.28);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #7d1226;
+  background: rgba(255, 236, 240, 0.92);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.reward-button[aria-busy="true"],
+.reward-button.is-busy {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.reset-dialog {
+  width: min(400px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 12px;
+  padding: 22px;
+  color: var(--text);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow);
+}
+
+.reset-dialog::backdrop {
+  background: rgba(21, 33, 54, 0.52);
+}
+
+.reset-dialog h2 {
+  margin-bottom: 10px;
+  font-size: clamp(22px, 5vw, 28px);
+}
+
+.reset-dialog p {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.dialog-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.dialog-actions button {
+  margin-top: 0;
+  min-height: 48px;
+  font-size: 16px;
+}
+
+@media (max-width: 360px) {
+  .dialog-actions {
+    grid-template-columns: 1fr;
+  }
+}

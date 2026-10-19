@@ -1,39 +1,43 @@
-﻿"use strict";
+"use strict";
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d", { alpha: false });
 const VACUUM_PLAYER_FILE_SRC = new URL("assets/vacuum_player.png", window.location.href).href;
 const VACUUM_PLAYER_SRC = window.VACUUM_PLAYER_DATA_URI || VACUUM_PLAYER_FILE_SRC;
 const vacuumPlayerPreload = document.getElementById("vacuumPreload");
-const vacuumPlayerImage = new Image();
+// QA-010: битмап игрока грузится ровно один раз. Уже объявленный в разметке
+// preload-элемент переиспользуется как источник для canvas вместо второго Image(),
+// поэтому одна и та же картинка не запрашивается дважды.
+const vacuumPlayerImage = vacuumPlayerPreload instanceof HTMLImageElement ? vacuumPlayerPreload : new Image();
+const vacuumPlayerImageIsPreload = vacuumPlayerImage === vacuumPlayerPreload;
 let vacuumPlayerImageLoaded = false;
 vacuumPlayerImage.decoding = "sync";
-vacuumPlayerImage.onload = () => {
-  vacuumPlayerImageLoaded = true;
-};
-vacuumPlayerImage.onerror = () => {
-  console.warn("Не удалось загрузить изображение пылесоса.");
-  if (vacuumPlayerImage.src !== VACUUM_PLAYER_FILE_SRC) {
-    vacuumPlayerImage.src = VACUUM_PLAYER_FILE_SRC;
+const criticalAssetsReady = new Promise((resolve) => {
+  const loaded = () => {
+    vacuumPlayerImageLoaded = true;
+    resolve();
+  };
+  const failed = () => {
+    // The existing vector renderer is usable when the bitmap fails.
+    vacuumPlayerImageLoaded = false;
+    resolve();
+  };
+  vacuumPlayerImage.onload = loaded;
+  vacuumPlayerImage.onerror = failed;
+  if (vacuumPlayerImage.complete && vacuumPlayerImage.getAttribute("src")) {
+    if (vacuumPlayerImage.naturalWidth > 0) loaded();
+    else failed();
   }
-};
-vacuumPlayerImage.src = VACUUM_PLAYER_SRC;
-vacuumPlayerImage.decode?.().then(() => {
-  vacuumPlayerImageLoaded = true;
-}).catch(() => {});
-
-if (vacuumPlayerPreload && !vacuumPlayerPreload.src) {
-  vacuumPlayerPreload.src = VACUUM_PLAYER_SRC;
+});
+if (!vacuumPlayerImageIsPreload || !vacuumPlayerImage.getAttribute("src")) {
+  vacuumPlayerImage.src = VACUUM_PLAYER_SRC;
 }
 
 function isVacuumBitmapReady() {
   return vacuumPlayerImageLoaded && vacuumPlayerImage.complete && vacuumPlayerImage.naturalWidth > 0;
 }
 
-if (
-  (vacuumPlayerImage.complete && vacuumPlayerImage.naturalWidth > 0) ||
-  (vacuumPlayerPreload?.complete && vacuumPlayerPreload.naturalWidth > 0)
-) {
+if (vacuumPlayerImage.complete && vacuumPlayerImage.naturalWidth > 0) {
   vacuumPlayerImageLoaded = true;
 }
 
@@ -46,6 +50,8 @@ const screens = {
 
 const ui = {
   menuBestScore: document.getElementById("menuBestScore"),
+  continueButton: document.getElementById("continueButton"),
+  playButton: document.getElementById("playButton"),
   starsCount: document.getElementById("starsCount"),
   upgradesList: document.getElementById("upgradesList"),
   boostersList: document.getElementById("boostersList"),
@@ -61,26 +67,74 @@ const ui = {
   finalScore: document.getElementById("finalScore"),
   finalBestScore: document.getElementById("finalBestScore"),
   earnedStars: document.getElementById("earnedStars"),
+  adNotice: document.getElementById("adNotice"),
   reviveAdButton: document.getElementById("reviveAdButton"),
   doubleStarsAdButton: document.getElementById("doubleStarsAdButton"),
   gameMenuButton: document.getElementById("gameMenuButton"),
-  soundToggleButton: document.getElementById("soundToggleButton")
+  soundToggleButton: document.getElementById("soundToggleButton"),
+  resetProgressButton: document.getElementById("resetProgressButton"),
+  resetDialog: document.getElementById("resetDialog"),
+  resetDialogTitle: document.getElementById("resetDialogTitle"),
+  resetDialogText: document.getElementById("resetDialogText"),
+  resetConfirmButton: document.getElementById("resetConfirmButton"),
+  resetCancelButton: document.getElementById("resetCancelButton")
 };
 
 const STORAGE_KEY = "thoughtVacuumProgress.v1";
-const GOOD_EMOJIS = ["🌈", "💡", "🎵", "🌸", "✨", "🍀", "😊", "🧁"];
+const ACTIVE_KEY = "thoughtVacuumActive.v1";
+const PROGRESS_VERSION = 1;
+const ACTIVE_SAVE_VERSION = 1;
+const ACTIVE_SAVE_INTERVAL_MS = 1000;
+const ACTIVE_SAVE_TTL_MS = 12 * 60 * 60 * 1000;
+const ACTIVE_SAVE_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const ACTIVE_SAVE_MAX_THOUGHTS = 60;
+const CLOUD_TIMEOUT_MS = 8000;
+const CLOUD_DEBOUNCE_MS = 4000;
+const CLOUD_MAX_RETRIES = 3;
+const REWARDED_SAFETY_TIMEOUT_MS = 180000;
+const PURCHASE_COOLDOWN_MS = 450;
+const KEYBOARD_SPEED = 620;
+const MAX_LIVES_LIMIT = 10;
+const MAX_COMBO = 5;
+
+const GOOD_EMOJIS = ["💡", "🎵", "🌸", "✨", "🍀", "😊", "🧁"];
 const BAD_EMOJIS = ["⚡", "💢", "🌀", "😵", "☁️", "🔥"];
 const GOLD_EMOJIS = ["⭐", "🌟", "💛"];
+const RAINBOW_EMOJIS = ["🌈"];
+const RAINBOW_COLORS = ["#ff6f91", "#ffae42", "#ffd75d", "#1fbfa3", "#36a3ff", "#8878ff"];
+const THOUGHT_TYPES = new Set(["good", "bad", "gold", "rainbow"]);
 const DAILY_REWARD_STARS = 3;
 const DAILY_TASK_REWARD = 2;
 const DAILY_ALL_TASKS_REWARD = 3;
 const MAX_BOOSTERS = 3;
 const RU_LANGUAGE_CODES = new Set(["ru", "be", "kk", "uk", "uz"]);
+
+const diagnostics = {
+  activeSaveWrites: 0,
+  activeSaveRestores: 0,
+  assetErrors: 0,
+  cloudLoads: 0,
+  cloudState: "idle",
+  cloudWrites: 0,
+  gameplayStartCalls: 0,
+  gameplayStopCalls: 0,
+  loadingReadyCalls: 0,
+  mergeDecision: "none",
+  rewardedRequests: 0,
+  rewardedRewards: 0,
+  storageWriteFailures: 0,
+  playerVisualScale: 0.4,
+  rainbowSpawns: 0,
+  rainbowCollections: 0,
+  lastRainbowPoints: 0
+};
+window.__thoughtVacuumDiagnostics = diagnostics;
+
 const TRANSLATIONS = {
   ru: {
     pageTitle: "Пылесос Пыслей",
     canvasLabel: "Игровое поле",
-    menuEyebrow: "милая canvas-игра",
+    menuEyebrow: "Уютная аркада",
     menuTitle: "Пылесос Пыслей",
     menuLead: "Управляй милым пылесосом с магической аурой: собирай хорошие мысли, избегай вредных и лови золотые бонусы.",
     bestResult: "Лучший результат:",
@@ -88,6 +142,8 @@ const TRANSLATIONS = {
     dailyRewardReady: "Забери подарок за вход",
     dailyRewardClaimed: "Бонус уже получен",
     play: "Играть",
+    newGame: "Начать заново",
+    continueGame: "Продолжить игру",
     upgrades: "Улучшения",
     workshop: "мастерская",
     boosters: "Бустеры",
@@ -103,6 +159,7 @@ const TRANSLATIONS = {
     combo: "Комбо",
     menu: "Меню",
     bonus: "Бонус",
+    gameRoundTitle: "Игровой раунд",
     gameOverEyebrow: "поток очищен",
     gameOver: "Игра окончена",
     best: "Лучший",
@@ -123,12 +180,20 @@ const TRANSLATIONS = {
     soundOff: "Включить звук",
     smartMagnet: "умный магнит",
     slow: "замедление",
-    shield: "щит"
+    shield: "щит",
+    adUnavailable: "Реклама сейчас недоступна. Награда не начислена.",
+    adNotCompleted: "Реклама не была досмотрена. Награда не начислена.",
+    adBusy: "Дождитесь завершения текущей рекламы.",
+    resetProgress: "Сброс прогресса",
+    resetDialogTitle: "Сбросить весь прогресс?",
+    resetDialogText: "Будут удалены лучший результат, звезды, улучшения, бустеры, скины, ежедневные задания и незавершенный раунд. Действие необратимо.",
+    resetConfirm: "Сбросить",
+    resetCancel: "Отмена"
   },
   en: {
     pageTitle: "Thought Vacuum",
     canvasLabel: "Game field",
-    menuEyebrow: "cute canvas game",
+    menuEyebrow: "Cute arcade game",
     menuTitle: "Thought Vacuum",
     menuLead: "Guide a cute vacuum with a magic aura: collect good thoughts, avoid harmful ones, and catch golden bonuses.",
     bestResult: "Best score:",
@@ -136,6 +201,8 @@ const TRANSLATIONS = {
     dailyRewardReady: "Claim your login gift",
     dailyRewardClaimed: "Bonus already claimed",
     play: "Play",
+    newGame: "Start new game",
+    continueGame: "Continue game",
     upgrades: "Upgrades",
     workshop: "workshop",
     boosters: "Boosters",
@@ -151,6 +218,7 @@ const TRANSLATIONS = {
     combo: "Combo",
     menu: "Menu",
     bonus: "Bonus",
+    gameRoundTitle: "Game round",
     gameOverEyebrow: "stream cleared",
     gameOver: "Game over",
     best: "Best",
@@ -171,7 +239,15 @@ const TRANSLATIONS = {
     soundOff: "Enable sound",
     smartMagnet: "smart magnet",
     slow: "slow",
-    shield: "shield"
+    shield: "shield",
+    adUnavailable: "Ads are unavailable right now. No reward was granted.",
+    adNotCompleted: "The ad was not completed. No reward was granted.",
+    adBusy: "Please wait until the current ad finishes.",
+    resetProgress: "Reset progress",
+    resetDialogTitle: "Reset all progress?",
+    resetDialogText: "This deletes your best score, stars, upgrades, boosters, skins, daily tasks and any unfinished round. This cannot be undone.",
+    resetConfirm: "Reset",
+    resetCancel: "Cancel"
   }
 };
 
@@ -278,8 +354,18 @@ const taskDefinitions = {
 };
 
 let yaSdk = null;
+let cloudPlayer = null;
+let cloudSaveTimer = 0;
+let cloudSaveInFlight = false;
+let cloudSavePending = false;
+let cloudRetries = 0;
+let sdkSettled = false;
+let criticalAssetsSettled = false;
+let initialUiReady = false;
+let loadingReadySent = false;
 let audioContext = null;
 let vacuumLoop = null;
+let bubbleNoiseBuffer = null;
 const VACUUM_START_DURATION = 3.2;
 let dpr = 1;
 let width = 0;
@@ -287,21 +373,75 @@ let height = 0;
 let lastTime = 0;
 let currentScreen = "menu";
 let gameplayMarkedActive = false;
-
+let activeRewardedRequest = null;
+let rewardedRequestSequence = 0;
+let transactionInProgress = false;
+const purchaseCooldowns = new Map();
+const pressedMovementKeys = new Set();
+const systemPauseReasons = new Set();
+const MOVEMENT_KEYS = new Map([
+  ["ArrowUp", [0, -1]],
+  ["ArrowDown", [0, 1]],
+  ["ArrowLeft", [-1, 0]],
+  ["ArrowRight", [1, 0]],
+  ["KeyW", [0, -1]],
+  ["KeyS", [0, 1]],
+  ["KeyA", [-1, 0]],
+  ["KeyD", [1, 0]]
+]);
+const screenHeadingIds = {
+  menu: "menuTitle",
+  upgrades: "upgradesTitle",
+  game: "gameRoundTitle",
+  gameOver: "resultTitle"
+};
+const screenOpeners = {};
+let lastActiveSaveAt = 0;
+let activeSaveRevision = 0;
+let resetDialogOpener = null;
+let progressStorageNeedsRepair = false;
 let currentLang = resolveLanguage(new URLSearchParams(window.location.search).get("lang") || navigator.language);
 let progress = loadProgress();
 ensureDailyState();
+if (progressStorageNeedsRepair) {
+  progressStorageNeedsRepair = false;
+  saveProgress();
+}
 let game = null;
 let backgroundBubbles = [];
 
-applyLanguage();
-initYandexSdk();
-resizeCanvas();
-bindEvents();
-renderUpgrades();
-updateMenu();
-switchScreen("menu");
-requestAnimationFrame(loop);
+async function initializeApplication() {
+  await Promise.all([initYandexSdk(), criticalAssetsReady]);
+  criticalAssetsSettled = true;
+  if (!isVacuumBitmapReady()) diagnostics.assetErrors += 1;
+  applyLanguage();
+  resizeCanvas();
+  renderUpgrades();
+  updateMenu();
+  // Reload still opens Menu, with an explicit Continue action for a saved run.
+  switchScreen("menu", { initial: true });
+  bindEvents();
+  const menuLayoutObserver = new ResizeObserver(fitMenuToViewport);
+  menuLayoutObserver.observe(screens.menu);
+  menuLayoutObserver.observe(screens.menu.querySelector('.panel'));
+  fitMenuToViewport();
+  await new Promise(requestAnimationFrame);
+  draw();
+  initialUiReady = true;
+  // Tell Yandex that loading is complete while the startup lock is still
+  // active. The first user-visible frame is released only after this call.
+  maybeSignalLoadingReady();
+  document.body.removeAttribute("data-starting");
+  document.body.removeAttribute("aria-busy");
+  document.body.inert = false;
+  requestAnimationFrame(loop);
+}
+
+initializeApplication().catch((error) => {
+  console.error("Application startup failed:", error);
+});
+
+/* ---------------------------------------------------------------- language */
 
 function resolveLanguage(lang) {
   const code = String(lang || "ru").toLowerCase().split("-")[0];
@@ -354,6 +494,7 @@ function applyLanguage() {
   ui.menuBestScore = document.getElementById("menuBestScore");
   setText("#dailyRewardCard strong", tr("dailyRewardTitle"));
   setText("#playButton", tr("play"));
+  setText("#continueButton", tr("continueGame"));
   setText("#upgradesButton", tr("upgrades"));
 
   setText("#upgradesScreen .eyebrow", tr("workshop"));
@@ -363,8 +504,10 @@ function applyLanguage() {
   setText("#skinsTitle", tr("skins"));
   setText("#skinsNote", tr("skinsNote"));
   setText(".tasks-panel .tasks-head h3", tr("dailyTasks"));
+  setText("#resetProgressButton", tr("resetProgress"));
   setText("#backFromUpgradesButton", tr("back"));
 
+  setText("#gameRoundTitle", tr("gameRoundTitle"));
   setText(".hud-item:nth-child(1) span", tr("score"));
   setText(".hud-item:nth-child(2) span", tr("lives"));
   setText(".hud-item:nth-child(3) span", tr("combo"));
@@ -380,13 +523,82 @@ function applyLanguage() {
   setText("#doubleStarsAdButton", tr("doubleStarsAd"));
   setText("#restartButton", tr("restart"));
   setText("#menuButton", tr("menu"));
+  setText("#resetDialogTitle", tr("resetDialogTitle"));
+  setText("#resetDialogText", tr("resetDialogText"));
+  setText("#resetConfirmButton", tr("resetConfirm"));
+  setText("#resetCancelButton", tr("resetCancel"));
   updateSoundControls();
 }
-function markLoadingReady() {
+
+/* ------------------------------------------------------- storage utilities */
+
+function storageGet(key) {
   try {
-    yaSdk?.features?.LoadingAPI?.ready();
+    return window.localStorage.getItem(key);
   } catch (error) {
-    console.warn("Не удалось отправить LoadingAPI.ready:", error);
+    return null;
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    diagnostics.storageWriteFailures += 1;
+    return false;
+  }
+}
+
+function storageRemove(key) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch (error) {
+    diagnostics.storageWriteFailures += 1;
+  }
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function finiteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function readInt(value, min, max, fallback) {
+  if (!finiteNumber(value)) return fallback;
+  const rounded = Math.trunc(value);
+  if (rounded < min || rounded > max) return clamp(rounded, min, max);
+  return rounded;
+}
+
+function readFloat(value, min, max, fallback) {
+  if (!finiteNumber(value)) return fallback;
+  return clamp(value, min, max);
+}
+
+function readBool(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function readDateKey(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+}
+
+/* ------------------------------------------------------------ Yandex SDK */
+
+function maybeSignalLoadingReady() {
+  if (loadingReadySent) return;
+  if (!sdkSettled || !criticalAssetsSettled || !initialUiReady) return;
+  loadingReadySent = true;
+  try {
+    if (typeof yaSdk?.features?.LoadingAPI?.ready === "function") {
+      yaSdk.features.LoadingAPI.ready();
+      diagnostics.loadingReadyCalls += 1;
+    }
+  } catch (error) {
+    /* LoadingAPI недоступен — локальный запуск всё равно продолжится. */
   }
 }
 
@@ -395,9 +607,12 @@ function markGameplayStart() {
   gameplayMarkedActive = true;
   startVacuumLoop();
   try {
-    yaSdk?.features?.GameplayAPI?.start();
+    if (typeof yaSdk?.features?.GameplayAPI?.start === "function") {
+      yaSdk.features.GameplayAPI.start();
+      diagnostics.gameplayStartCalls += 1;
+    }
   } catch (error) {
-    console.warn("Не удалось отправить GameplayAPI.start:", error);
+    /* GameplayAPI недоступен — игра продолжается без телеметрии. */
   }
 }
 
@@ -406,16 +621,581 @@ function markGameplayStop() {
   gameplayMarkedActive = false;
   stopVacuumLoop();
   try {
-    yaSdk?.features?.GameplayAPI?.stop();
+    if (typeof yaSdk?.features?.GameplayAPI?.stop === "function") {
+      yaSdk.features.GameplayAPI.stop();
+      diagnostics.gameplayStopCalls += 1;
+    }
   } catch (error) {
-    console.warn("Не удалось отправить GameplayAPI.stop:", error);
+    /* GameplayAPI недоступен — игра продолжается без телеметрии. */
   }
 }
 
+async function initYandexSdk() {
+  if (!window.YaGames || typeof window.YaGames.init !== "function") {
+    sdkSettled = true;
+    diagnostics.cloudState = "unavailable";
+    return;
+  }
+
+  try {
+    // Do not treat a slow SDK as unavailable: its language must win before access.
+    yaSdk = await window.YaGames.init() || null;
+  } catch (error) {
+    sdkSettled = true;
+    diagnostics.cloudState = "unavailable";
+    return;
+  }
+  const platformLanguage = yaSdk?.environment?.i18n?.lang;
+  if (platformLanguage) currentLang = resolveLanguage(platformLanguage);
+  applyLanguage();
+  try {
+    if (typeof yaSdk?.on === "function") {
+      yaSdk.on("game_api_pause", () => pauseActiveGame("sdk"));
+      yaSdk.on("game_api_resume", () => resumeSystemPausedGame("sdk"));
+    }
+  } catch (error) {
+    console.warn("SDK lifecycle subscription unavailable:", error);
+  }
+  await initCloudSave();
+  sdkSettled = true;
+}
+
+function withTimeout(promise, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("timeout"));
+    }, timeoutMs);
+    Promise.resolve(promise).then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+/* --------------------------------------------------------------- cloud save
+ * Детерминированная merge policy (одна и та же для всех устройств):
+ *   1. Облако пустое/невалидное  -> оставляем локальный прогресс и отправляем его.
+ *   2. Облако "пустое по смыслу" (нет best/stars/upgrades/скинов/бустеров),
+ *      а локально данные есть   -> локальный прогресс НИКОГДА не перезаписывается.
+ *   3. revision больше          -> побеждает большая revision.
+ *   4. revision равны           -> побеждает больший updatedAt.
+ *   5. Полное равенство         -> побеждает локальная копия (стабильный выбор).
+ * Активный раунд (thoughtVacuumActive.v1) намеренно local-only:
+ * продолжение раунда на другом устройстве не входит в product contract.
+ */
+
+async function initCloudSave() {
+  if (!yaSdk || typeof yaSdk.getPlayer !== "function") {
+    diagnostics.cloudState = "unavailable";
+    return;
+  }
+
+  let player = null;
+  try {
+    player = await withTimeout(yaSdk.getPlayer({ scopes: false }), CLOUD_TIMEOUT_MS);
+  } catch (error) {
+    diagnostics.cloudState = "unavailable";
+    return;
+  }
+
+  if (!player || typeof player.getData !== "function" || typeof player.setData !== "function") {
+    diagnostics.cloudState = "unavailable";
+    return;
+  }
+
+  cloudPlayer = player;
+
+  let remoteRaw = null;
+  try {
+    remoteRaw = await withTimeout(player.getData([STORAGE_KEY]), CLOUD_TIMEOUT_MS);
+    diagnostics.cloudLoads += 1;
+  } catch (error) {
+    diagnostics.cloudState = "read-error";
+    return;
+  }
+
+  diagnostics.cloudState = "ready";
+  applyCloudSnapshot(isPlainObject(remoteRaw) ? remoteRaw[STORAGE_KEY] : null);
+}
+
+function isMeaningfulProgress(value) {
+  if (!value) return false;
+  const boosterTotal = value.boosters.magnetStart + value.boosters.shield + value.boosters.doubleStart;
+  const upgradeTotal = value.upgrades.radius + value.upgrades.bonus + value.upgrades.life;
+  return (
+    value.bestScore > 0 ||
+    value.stars > 0 ||
+    boosterTotal > 0 ||
+    upgradeTotal > 0 ||
+    value.ownedSkins.length > 1 ||
+    value.dailyRewardDate !== "" ||
+    value.dailyTasks.some((task) => task.progress > 0 || task.claimed)
+  );
+}
+
+function applyCloudSnapshot(rawRemote) {
+  if (!isPlainObject(rawRemote)) {
+    diagnostics.mergeDecision = "local-no-remote";
+    scheduleCloudSave(true);
+    return;
+  }
+
+  const remote = normalizeProgress(rawRemote);
+  const localMeaningful = isMeaningfulProgress(progress);
+  const remoteMeaningful = isMeaningfulProgress(remote);
+
+  if (!remoteMeaningful && localMeaningful) {
+    diagnostics.mergeDecision = "local-remote-empty";
+    scheduleCloudSave(true);
+    return;
+  }
+
+  let adoptRemote = false;
+  if (remote.revision > progress.revision) adoptRemote = true;
+  else if (remote.revision === progress.revision && remote.updatedAt > progress.updatedAt) adoptRemote = true;
+
+  if (!adoptRemote) {
+    diagnostics.mergeDecision = "local-newer";
+    scheduleCloudSave(true);
+    return;
+  }
+
+  diagnostics.mergeDecision = "remote-newer";
+  progress = remote;
+  ensureDailyState();
+  storageSet(STORAGE_KEY, JSON.stringify(progress));
+  applyLanguage();
+  renderUpgrades();
+  updateMenu();
+  updateSoundControls();
+}
+
+function scheduleCloudSave(immediate = false) {
+  if (!cloudPlayer) return;
+  cloudSavePending = true;
+  if (cloudSaveTimer) window.clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = window.setTimeout(flushCloudSave, immediate ? 0 : CLOUD_DEBOUNCE_MS);
+}
+
+function flushCloudSave() {
+  if (cloudSaveTimer) {
+    window.clearTimeout(cloudSaveTimer);
+    cloudSaveTimer = 0;
+  }
+  if (!cloudPlayer || !cloudSavePending || cloudSaveInFlight) return;
+
+  cloudSaveInFlight = true;
+  cloudSavePending = false;
+  const payload = { [STORAGE_KEY]: JSON.parse(JSON.stringify(progress)) };
+
+  let request = null;
+  try {
+    request = cloudPlayer.setData(payload, true);
+  } catch (error) {
+    cloudSaveInFlight = false;
+    handleCloudSaveFailure();
+    return;
+  }
+
+  Promise.resolve(request)
+    .then(() => {
+      cloudSaveInFlight = false;
+      cloudRetries = 0;
+      diagnostics.cloudWrites += 1;
+      if (cloudSavePending) scheduleCloudSave(true);
+    })
+    .catch(() => {
+      cloudSaveInFlight = false;
+      handleCloudSaveFailure();
+    });
+}
+
+function handleCloudSaveFailure() {
+  diagnostics.cloudState = "write-error";
+  if (cloudRetries >= CLOUD_MAX_RETRIES) return;
+  cloudRetries += 1;
+  cloudSavePending = true;
+  if (cloudSaveTimer) window.clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = window.setTimeout(flushCloudSave, CLOUD_DEBOUNCE_MS * cloudRetries);
+}
+
+/* ------------------------------------------------------------- meta save */
+
+function defaultProgress() {
+  const today = getTodayKey();
+  return {
+    version: PROGRESS_VERSION,
+    revision: 0,
+    updatedAt: 0,
+    bestScore: 0,
+    stars: 0,
+    roundsSinceInterstitial: 0,
+    boosters: { magnetStart: 0, shield: 0, doubleStart: 0 },
+    ownedSkins: ["blue"],
+    activeSkin: "blue",
+    dailyRewardDate: "",
+    dailyTasksDate: today,
+    dailyTasks: createDailyTasks(today),
+    dailyTasksCompletedBonusClaimed: false,
+    soundMuted: false,
+    upgrades: { radius: 0, bonus: 0, life: 0 }
+  };
+}
+
+function normalizeProgress(parsed) {
+  const fallback = defaultProgress();
+  if (!isPlainObject(parsed)) return fallback;
+
+  const ownedSkins = normalizeOwnedSkins(parsed.ownedSkins);
+  return {
+    version: readInt(parsed.version, 0, 1000, PROGRESS_VERSION),
+    revision: readInt(parsed.revision, 0, Number.MAX_SAFE_INTEGER, 0),
+    updatedAt: readInt(parsed.updatedAt, 0, Number.MAX_SAFE_INTEGER, 0),
+    bestScore: readInt(parsed.bestScore, 0, 1e12, 0),
+    stars: readInt(parsed.stars, 0, 1e9, 0),
+    roundsSinceInterstitial: readInt(parsed.roundsSinceInterstitial, 0, 1e6, 0),
+    boosters: normalizeBoosters(parsed.boosters),
+    ownedSkins,
+    activeSkin: ownedSkins.includes(parsed.activeSkin) ? parsed.activeSkin : "blue",
+    dailyRewardDate: readDateKey(parsed.dailyRewardDate),
+    dailyTasksDate: readDateKey(parsed.dailyTasksDate),
+    dailyTasks: normalizeDailyTasks(parsed.dailyTasks),
+    dailyTasksCompletedBonusClaimed: readBool(parsed.dailyTasksCompletedBonusClaimed, false),
+    soundMuted: readBool(parsed.soundMuted, false),
+    upgrades: {
+      radius: readInt(parsed.upgrades?.radius, 0, upgradeInfo.radius.max, 0),
+      bonus: readInt(parsed.upgrades?.bonus, 0, upgradeInfo.bonus.max, 0),
+      life: readInt(parsed.upgrades?.life, 0, upgradeInfo.life.max, 0)
+    }
+  };
+}
+
+function loadProgress() {
+  const raw = storageGet(STORAGE_KEY);
+  if (!raw) return defaultProgress();
+  try {
+    const parsed = JSON.parse(raw);
+    const normalized = normalizeProgress(parsed);
+    // Любая нормализация должна быть записана обратно сразу, иначе типово
+    // повреждённая запись живёт в storage до первого пользовательского save.
+    if (!isPlainObject(parsed) || JSON.stringify(normalized) !== JSON.stringify(parsed)) {
+      progressStorageNeedsRepair = true;
+    }
+    return normalized;
+  } catch (error) {
+    progressStorageNeedsRepair = true;
+    return defaultProgress();
+  }
+}
+
+function saveProgress() {
+  progress.version = PROGRESS_VERSION;
+  progress.revision = readInt(progress.revision, 0, Number.MAX_SAFE_INTEGER, 0) + 1;
+  progress.updatedAt = Date.now();
+  storageSet(STORAGE_KEY, JSON.stringify(progress));
+  scheduleCloudSave();
+}
+
+function normalizeBoosters(boosters) {
+  return {
+    magnetStart: readInt(boosters?.magnetStart, 0, MAX_BOOSTERS, 0),
+    shield: readInt(boosters?.shield, 0, MAX_BOOSTERS, 0),
+    doubleStart: readInt(boosters?.doubleStart, 0, MAX_BOOSTERS, 0)
+  };
+}
+
+function normalizeOwnedSkins(ownedSkins) {
+  const owned = Array.isArray(ownedSkins)
+    ? ownedSkins.filter((key) => typeof key === "string" && Object.hasOwn(skinInfo, key))
+    : [];
+  if (!owned.includes("blue")) owned.unshift("blue");
+  return [...new Set(owned)];
+}
+
+function normalizeDailyTasks(dailyTasks) {
+  if (!Array.isArray(dailyTasks)) return [];
+  return dailyTasks
+    .filter((task) => isPlainObject(task) && typeof task.id === "string" && Object.hasOwn(taskDefinitions, task.id))
+    .slice(0, 3)
+    .map((task) => ({
+      id: task.id,
+      progress: readInt(task.progress, 0, taskDefinitions[task.id].target, 0),
+      claimed: readBool(task.claimed, false)
+    }));
+}
+
+/* ------------------------------------------------------------ active save */
+
+function createActiveSnapshot() {
+  activeSaveRevision += 1;
+  return {
+    version: ACTIVE_SAVE_VERSION,
+    phase: "running",
+    revision: activeSaveRevision,
+    updatedAt: Date.now(),
+    score: game.score,
+    lives: game.lives,
+    maxLives: game.maxLives,
+    combo: game.combo,
+    streak: game.streak,
+    maxComboThisRun: game.maxComboThisRun,
+    elapsed: game.elapsed,
+    spawnTimer: game.spawnTimer,
+    slowTimer: game.slowTimer,
+    magnetTimer: game.magnetTimer,
+    doubleTimer: game.doubleTimer,
+    vacuumStartTimer: game.vacuumStartTimer,
+    shieldActive: game.shieldActive,
+    revivedOnce: game.revivedOnce,
+    starsAwarded: game.starsAwarded,
+    starsDoubled: game.starsDoubled,
+    earnedStarsThisRun: game.earnedStarsThisRun,
+    rewardedStarsBonus: game.rewardedStarsBonus,
+    interstitialCounted: game.interstitialCounted,
+    pausedBySystem: typeof game.pausedBySystem === "string" ? game.pausedBySystem : "",
+    player: {
+      x: game.player.x,
+      y: game.player.y,
+      tx: game.player.tx,
+      ty: game.player.ty,
+      radius: game.player.radius,
+      suckRadius: game.player.suckRadius
+    },
+    thoughts: game.thoughts.slice(0, ACTIVE_SAVE_MAX_THOUGHTS).map((thought) => ({
+      x: thought.x,
+      y: thought.y,
+      vx: thought.vx,
+      vy: thought.vy,
+      radius: thought.radius,
+      type: thought.type,
+      emoji: thought.emoji,
+      spin: thought.spin,
+      spinSpeed: thought.spinSpeed,
+      pulse: thought.pulse
+    }))
+  };
+}
+
+function saveActiveRound(force = false) {
+  if (!game || game.finished) return;
+  const now = Date.now();
+  if (!force && now - lastActiveSaveAt < ACTIVE_SAVE_INTERVAL_MS) return;
+  lastActiveSaveAt = now;
+  if (storageSet(ACTIVE_KEY, JSON.stringify(createActiveSnapshot()))) {
+    diagnostics.activeSaveWrites += 1;
+  }
+}
+
+function clearActiveRound() {
+  storageRemove(ACTIVE_KEY);
+}
+
+function getResumableActiveRound() {
+  const raw = storageGet(ACTIVE_KEY);
+  if (!raw) return null;
+
+  const snapshot = parseActiveSnapshot(raw);
+  if (!snapshot) {
+    clearActiveRound();
+    return null;
+  }
+
+  return snapshot;
+}
+
+function parseActiveSnapshot(raw) {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    return null;
+  }
+
+  if (!isPlainObject(parsed)) return null;
+  if (parsed.version !== ACTIVE_SAVE_VERSION) return null;
+  if (parsed.phase !== "running") return null;
+  const revision = strictInt(parsed.revision, 1, Number.MAX_SAFE_INTEGER);
+  if (revision === null) return null;
+  if (!finiteNumber(parsed.updatedAt)) return null;
+
+  const now = Date.now();
+  if (parsed.updatedAt > now + ACTIVE_SAVE_FUTURE_SKEW_MS) return null;
+  if (now - parsed.updatedAt > ACTIVE_SAVE_TTL_MS) return null;
+
+  const maxLives = strictInt(parsed.maxLives, 1, MAX_LIVES_LIMIT);
+  if (maxLives === null) return null;
+  const lives = strictInt(parsed.lives, 1, maxLives);
+  if (lives === null) return null;
+  const combo = strictInt(parsed.combo, 1, MAX_COMBO);
+  if (combo === null) return null;
+  const maxComboThisRun = strictInt(parsed.maxComboThisRun, combo, MAX_COMBO);
+  if (maxComboThisRun === null) return null;
+  const streak = strictInt(parsed.streak, 0, 1e7);
+  if (streak === null) return null;
+  const score = strictNumber(parsed.score, 0, 1e12);
+  if (score === null) return null;
+
+  const numericTimers = {};
+  for (const key of ["elapsed", "spawnTimer", "slowTimer", "magnetTimer", "doubleTimer", "vacuumStartTimer"]) {
+    const value = strictNumber(parsed[key], 0, 1e7);
+    if (value === null) return null;
+    numericTimers[key] = value;
+  }
+
+  const counters = {};
+  for (const key of ["earnedStarsThisRun", "rewardedStarsBonus"]) {
+    const value = strictInt(parsed[key], 0, 1e9);
+    if (value === null) return null;
+    counters[key] = value;
+  }
+
+  for (const key of ["shieldActive", "revivedOnce", "starsAwarded", "starsDoubled", "interstitialCounted"]) {
+    if (typeof parsed[key] !== "boolean") return null;
+  }
+
+  if (!isPlainObject(parsed.player)) return null;
+  const player = {};
+  for (const key of ["x", "y", "tx", "ty"]) {
+    const value = strictNumber(parsed.player[key], -1e6, 1e6);
+    if (value === null) return null;
+    player[key] = value;
+  }
+  const radius = strictNumber(parsed.player.radius, 1, 1000);
+  const suckRadius = strictNumber(parsed.player.suckRadius, 1, 5000);
+  if (radius === null || suckRadius === null) return null;
+  player.radius = radius;
+  player.suckRadius = suckRadius;
+
+  const thoughts = Array.isArray(parsed.thoughts)
+    ? parsed.thoughts.filter(isValidThought).slice(0, ACTIVE_SAVE_MAX_THOUGHTS)
+    : [];
+
+  return {
+    version: ACTIVE_SAVE_VERSION,
+    phase: "running",
+    revision,
+    updatedAt: parsed.updatedAt,
+    score,
+    lives,
+    maxLives,
+    combo,
+    streak,
+    maxComboThisRun,
+    ...numericTimers,
+    ...counters,
+    shieldActive: parsed.shieldActive,
+    revivedOnce: parsed.revivedOnce,
+    starsAwarded: parsed.starsAwarded,
+    starsDoubled: parsed.starsDoubled,
+    interstitialCounted: parsed.interstitialCounted,
+    pausedBySystem: typeof parsed.pausedBySystem === "string" ? parsed.pausedBySystem : "",
+    player,
+    thoughts
+  };
+}
+
+function strictNumber(value, min, max) {
+  if (!finiteNumber(value)) return null;
+  if (value < min || value > max) return null;
+  return value;
+}
+
+function strictInt(value, min, max) {
+  if (!finiteNumber(value) || !Number.isInteger(value)) return null;
+  if (value < min || value > max) return null;
+  return value;
+}
+
+function isValidThought(thought) {
+  if (!isPlainObject(thought)) return false;
+  if (!THOUGHT_TYPES.has(thought.type)) return false;
+  if (typeof thought.emoji !== "string" || thought.emoji.length === 0 || thought.emoji.length > 8) return false;
+  for (const key of ["x", "y", "vx", "vy", "spin", "spinSpeed", "pulse"]) {
+    if (!finiteNumber(thought[key])) return false;
+  }
+  return finiteNumber(thought.radius) && thought.radius > 0 && thought.radius < 500;
+}
+
+function restoreActiveRound() {
+  const raw = storageGet(ACTIVE_KEY);
+  if (!raw) return false;
+
+  const snapshot = parseActiveSnapshot(raw);
+  if (!snapshot) {
+    clearActiveRound();
+    return false;
+  }
+
+  const startX = clamp(snapshot.player.x, 20, Math.max(21, width - 20));
+  const startY = clamp(snapshot.player.y, 20, Math.max(21, height - 20));
+
+  game = {
+    running: true,
+    finished: false,
+    pausedBySystem: "",
+    score: snapshot.score,
+    lives: snapshot.lives,
+    maxLives: snapshot.maxLives,
+    combo: snapshot.combo,
+    streak: snapshot.streak,
+    spawnTimer: snapshot.spawnTimer,
+    elapsed: snapshot.elapsed,
+    shake: 0,
+    slowTimer: snapshot.slowTimer,
+    magnetTimer: snapshot.magnetTimer,
+    doubleTimer: snapshot.doubleTimer,
+    vacuumStartTimer: snapshot.vacuumStartTimer,
+    shieldActive: snapshot.shieldActive,
+    revivedOnce: snapshot.revivedOnce,
+    starsAwarded: snapshot.starsAwarded,
+    starsDoubled: snapshot.starsDoubled,
+    earnedStarsThisRun: snapshot.earnedStarsThisRun,
+    rewardedStarsBonus: snapshot.rewardedStarsBonus,
+    interstitialCounted: snapshot.interstitialCounted,
+    maxComboThisRun: snapshot.maxComboThisRun,
+    player: {
+      x: startX,
+      y: startY,
+      tx: clamp(snapshot.player.tx, 20, Math.max(21, width - 20)),
+      ty: clamp(snapshot.player.ty, 20, Math.max(21, height - 20)),
+      radius: snapshot.player.radius,
+      suckRadius: snapshot.player.suckRadius
+    },
+    thoughts: snapshot.thoughts.map((thought) => ({ ...thought })),
+    particles: []
+  };
+
+  activeSaveRevision = snapshot.revision;
+  diagnostics.activeSaveRestores += 1;
+  ui.bonusPill.classList.add("hidden");
+  saveActiveRound(true);
+  return true;
+}
+
+/* ---------------------------------------------------------------- lifecycle */
+
 function pauseActiveGame(reason) {
-  if (!game || !game.running) return;
+  systemPauseReasons.add(reason);
+  if (!game || game.finished) return;
+  game.pausedBySystem = reason;
+  if (!game.running) return;
+  saveActiveRound(true);
   game.running = false;
   game.pausedBySystem = reason;
+  pressedMovementKeys.clear();
   stopVacuumLoop(true);
   markGameplayStop();
   if (audioContext && audioContext.state === "running") {
@@ -424,10 +1204,11 @@ function pauseActiveGame(reason) {
 }
 
 function resumeSystemPausedGame(reason) {
-  if (!game || game.running || game.pausedBySystem !== reason || currentScreen !== "game") return;
+  systemPauseReasons.delete(reason);
+  if (systemPauseReasons.size || isRewardedLocked() || !game || game.running || game.finished || !game.pausedBySystem || currentScreen !== "game") return;
   game.pausedBySystem = "";
   game.running = true;
-  if (audioContext && audioContext.state === "suspended") {
+  if (!progress.soundMuted && audioContext && audioContext.state === "suspended") {
     audioContext.resume().catch(() => {});
   }
   markGameplayStart();
@@ -435,45 +1216,149 @@ function resumeSystemPausedGame(reason) {
 
 function handleVisibilityChange() {
   if (document.hidden) {
+    saveActiveRound(true);
     pauseActiveGame("visibility");
+    flushCloudSave();
   } else {
     resumeSystemPausedGame("visibility");
   }
 }
 
-function initYandexSdk() {
-  if (window.YaGames && typeof window.YaGames.init === "function") {
-    window.YaGames.init()
-      .then((sdk) => {
-        yaSdk = sdk;
-        setLanguage(yaSdk?.environment?.i18n?.lang);
-        markLoadingReady();
-        if (typeof yaSdk.on === "function") {
-          yaSdk.on("game_api_pause", () => pauseActiveGame("sdk"));
-          yaSdk.on("game_api_resume", () => resumeSystemPausedGame("sdk"));
-        }
-      })
-      .catch(() => {
-        yaSdk = null;
-      });
+function handlePageHide() {
+  saveActiveRound(true);
+  flushCloudSave();
+}
+
+/* ------------------------------------------------------------------- ads */
+
+function showAdNotice(messageKey) {
+  if (!ui.adNotice) return;
+  ui.adNotice.textContent = messageKey ? tr(messageKey) : "";
+  ui.adNotice.classList.toggle("hidden", !messageKey);
+}
+
+/**
+ * Транзиентное состояние "идёт реклама" помечается aria-busy, а не disabled:
+ * кнопка обязана оставаться в tab order и принимать активацию, чтобы попытка
+ * запустить второй rewarded была реально перехвачена общим mutex,
+ * а не спрятана за неактивным контролом. Фактическая блокировка —
+ * activeRewardedRequest, а не состояние DOM.
+ */
+function setRewardedBusy(busy) {
+  [ui.reviveAdButton, ui.doubleStarsAdButton].forEach((button) => {
+    if (!button) return;
+    button.setAttribute("aria-busy", busy ? "true" : "false");
+    button.classList.toggle("is-busy", busy);
+  });
+}
+
+function isRewardedLocked() {
+  return activeRewardedRequest !== null;
+}
+
+/**
+ * Единственная точка запуска rewarded-рекламы на всю игру.
+ * Награда выдаётся ТОЛЬКО из подтверждённого onRewarded активного запроса.
+ * Отсутствие SDK/adv/метода, throw, onError и close-до-награды -> fail closed.
+ */
+function showRewardedAd({ action, onSettled }) {
+  if (isRewardedLocked()) {
+    showAdNotice("adBusy");
+    return false;
   }
+
+  if (!yaSdk || !yaSdk.adv || typeof yaSdk.adv.showRewardedVideo !== "function") {
+    showAdNotice("adUnavailable");
+    return false;
+  }
+
+  const request = {
+    game,
+    action,
+    id: (rewardedRequestSequence += 1),
+    rewarded: false,
+    settled: false,
+    safetyTimer: 0,
+    wasRunning: Boolean(game?.running),
+    audioWasRunning: Boolean(audioContext && audioContext.state === "running")
+  };
+
+  activeRewardedRequest = request;
+  diagnostics.rewardedRequests += 1;
+  setRewardedBusy(true);
+  showAdNotice(null);
+
+  if (game) game.running = false;
+  if (request.wasRunning) markGameplayStop();
+  if (request.audioWasRunning) audioContext.suspend().catch(() => {});
+
+  const settle = () => {
+    if (request.settled) return;
+    request.settled = true;
+    if (request.safetyTimer) window.clearTimeout(request.safetyTimer);
+    if (activeRewardedRequest === request) activeRewardedRequest = null;
+    setRewardedBusy(false);
+
+    if (request.audioWasRunning && !systemPauseReasons.size && !progress.soundMuted && audioContext) {
+      audioContext.resume().catch(() => {});
+    }
+    if (request.wasRunning && game === request.game && !game.finished && !systemPauseReasons.size) {
+      game.running = true;
+      markGameplayStart();
+    }
+    if (request.rewarded) diagnostics.rewardedRewards += 1;
+    // A late ad callback belongs only to the round which requested it.
+    if (game === request.game) onSettled(request.rewarded);
+  };
+
+  const grantReward = () => {
+    if (request.settled || request.rewarded) return;
+    request.rewarded = true;
+  };
+
+  // Страховочный таймер освобождает общий mutex, если платформа не прислала
+  // ни onClose, ни onError. Награду он никогда не выдаёт.
+  request.safetyTimer = window.setTimeout(settle, REWARDED_SAFETY_TIMEOUT_MS);
+
+  try {
+    yaSdk.adv.showRewardedVideo({
+      callbacks: {
+        onOpen: () => {},
+        onRewarded: grantReward,
+        onClose: settle,
+        onError: () => settle()
+      }
+    });
+  } catch (error) {
+    settle();
+  }
+
+  return true;
 }
 
 function showFullscreenAd(onClose) {
+  if (systemPauseReasons.has("fullscreen")) return;
+  systemPauseReasons.add("fullscreen");
+  const adGame = game;
   const wasRunning = Boolean(game?.running);
-  const audioWasRunning = audioContext && audioContext.state === "running";
+  const audioWasRunning = Boolean(audioContext && audioContext.state === "running");
   let closed = false;
 
-  if (game) game.running = false;
+  if (game) {
+    game.running = false;
+    if (!game.finished) game.pausedBySystem = "fullscreen";
+  }
   if (wasRunning) markGameplayStop();
   if (audioWasRunning) audioContext.suspend().catch(() => {});
 
   const finish = () => {
     if (closed) return;
     closed = true;
-    if (audioWasRunning) audioContext.resume().catch(() => {});
-    if (wasRunning && game) {
+    systemPauseReasons.delete("fullscreen");
+    if (audioWasRunning && !systemPauseReasons.size && !progress.soundMuted && audioContext) audioContext.resume().catch(() => {});
+    if (wasRunning && game === adGame && !game.finished && !systemPauseReasons.size) {
       game.running = true;
+      game.pausedBySystem = "";
       markGameplayStart();
     }
     if (typeof onClose === "function") onClose();
@@ -493,125 +1378,129 @@ function showFullscreenAd(onClose) {
       }
     });
   } catch (error) {
-    console.warn("Ошибка полноэкранной рекламы:", error);
     finish();
   }
 }
 
-function showRewardedAd({ onReward, onClose, onError }) {
-  const wasRunning = Boolean(game?.running);
-  const audioWasRunning = audioContext && audioContext.state === "running";
-  let rewarded = false;
-  let closed = false;
-
-  if (game) game.running = false;
-  if (wasRunning) markGameplayStop();
-  if (audioWasRunning) audioContext.suspend().catch(() => {});
-
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    if (audioWasRunning) audioContext.resume().catch(() => {});
-    if (wasRunning && game) {
-      game.running = true;
-      markGameplayStart();
-    }
-    if (typeof onClose === "function") onClose(rewarded);
-  };
-
-  const reward = () => {
-    if (rewarded) return;
-    rewarded = true;
-    if (typeof onReward === "function") onReward();
-  };
-
-  if (!yaSdk || !yaSdk.adv || typeof yaSdk.adv.showRewardedVideo !== "function") {
-    reward();
-    close();
+function reviveWithAd() {
+  if (!game || game.running || game.revivedOnce || !game.finished) return;
+  if (isRewardedLocked()) {
+    showAdNotice("adBusy");
     return;
   }
 
-  try {
-    yaSdk.adv.showRewardedVideo({
-      callbacks: {
-        onOpen: () => {},
-        onRewarded: reward,
-        onClose: close,
-        onError: (error) => {
-          console.warn("Ошибка rewarded-рекламы:", error);
-          if (typeof onError === "function") onError(error);
-          close();
-        }
+  const started = showRewardedAd({
+    action: "revive",
+    onSettled: (rewarded) => {
+      if (!rewarded) {
+        showAdNotice("adNotCompleted");
+        updateRewardButtons();
+        return;
       }
-    });
-  } catch (error) {
-    console.warn("Ошибка rewarded-рекламы:", error);
-    if (typeof onError === "function") onError(error);
-    close();
-  }
+      applyRevive();
+    }
+  });
+
+  if (!started) updateRewardButtons();
 }
 
-function saveProgress() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
-  } catch (error) {
-    console.warn("Не удалось сохранить прогресс:", error);
-  }
-
-  // Здесь позже можно подключить сохранение player data из Yandex Games SDK.
+function applyRevive() {
+  if (!game || game.revivedOnce) return;
+  showAdNotice(null);
+  game.revivedOnce = true;
+  game.finished = false;
+  game.running = systemPauseReasons.size === 0;
+  game.pausedBySystem = systemPauseReasons.values().next().value || "";
+  game.lives = 1;
+  game.combo = 1;
+  game.streak = 0;
+  game.shake = 0;
+  game.vacuumStartTimer = VACUUM_START_DURATION;
+  game.thoughts = [];
+  game.particles = [];
+  updateHud();
+  updateRewardButtons();
+  switchScreen("game");
+  if (game.running) markGameplayStart();
+  saveActiveRound(true);
+  playSound("buy");
 }
 
-function loadProgress() {
-  const today = getTodayKey();
-  const fallback = {
-    bestScore: 0,
-    stars: 0,
-    roundsSinceInterstitial: 0,
-    boosters: { magnetStart: 0, shield: 0, doubleStart: 0 },
-    ownedSkins: ["blue"],
-    activeSkin: "blue",
-    dailyRewardDate: "",
-    dailyTasksDate: today,
-    dailyTasks: createDailyTasks(today),
-    dailyTasksCompletedBonusClaimed: false,
-    soundMuted: false,
-    upgrades: { radius: 0, bonus: 0, life: 0 }
-  };
+function doubleStarsWithAd() {
+  if (!game || game.running || game.starsDoubled || game.earnedStarsThisRun <= 0) return;
+  if (isRewardedLocked()) {
+    showAdNotice("adBusy");
+    return;
+  }
 
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-
-    return {
-      bestScore: Math.max(0, Number(parsed.bestScore) || 0),
-      stars: Math.max(0, Number(parsed.stars) || 0),
-      roundsSinceInterstitial: Math.max(0, Number(parsed.roundsSinceInterstitial) || 0),
-      boosters: normalizeBoosters(parsed.boosters),
-      ownedSkins: normalizeOwnedSkins(parsed.ownedSkins),
-      activeSkin: normalizeActiveSkin(parsed.activeSkin, parsed.ownedSkins),
-      dailyRewardDate: typeof parsed.dailyRewardDate === "string" ? parsed.dailyRewardDate : "",
-      dailyTasksDate: typeof parsed.dailyTasksDate === "string" ? parsed.dailyTasksDate : "",
-      dailyTasks: Array.isArray(parsed.dailyTasks) ? parsed.dailyTasks : [],
-      dailyTasksCompletedBonusClaimed: Boolean(parsed.dailyTasksCompletedBonusClaimed),
-      soundMuted: Boolean(parsed.soundMuted),
-      upgrades: {
-        radius: clamp(Number(parsed.upgrades?.radius) || 0, 0, upgradeInfo.radius.max),
-        bonus: clamp(Number(parsed.upgrades?.bonus) || 0, 0, upgradeInfo.bonus.max),
-        life: clamp(Number(parsed.upgrades?.life) || 0, 0, upgradeInfo.life.max)
+  const started = showRewardedAd({
+    action: "doubleStars",
+    onSettled: (rewarded) => {
+      if (!rewarded) {
+        showAdNotice("adNotCompleted");
+        updateRewardButtons();
+        return;
       }
-    };
-  } catch (error) {
-    console.warn("Не удалось загрузить прогресс:", error);
-    return fallback;
-  }
+      applyDoubleStars();
+    }
+  });
+
+  if (!started) updateRewardButtons();
 }
+
+function applyDoubleStars() {
+  if (!game || game.starsDoubled || game.earnedStarsThisRun <= 0) return;
+  showAdNotice(null);
+  const bonusStars = game.earnedStarsThisRun;
+  game.starsDoubled = true;
+  game.rewardedStarsBonus += bonusStars;
+  progress.stars = Math.max(0, progress.stars + bonusStars);
+  saveProgress();
+  ui.earnedStars.textContent = getResultStarsTotal();
+  updateRewardButtons();
+  updateMenu();
+  renderUpgrades();
+  playSound("gold");
+}
+
+function updateRewardButtons() {
+  if (!game || game.running) {
+    ui.reviveAdButton.classList.add("hidden");
+    ui.doubleStarsAdButton.classList.add("hidden");
+    return;
+  }
+
+  const locked = isRewardedLocked();
+  ui.reviveAdButton.classList.toggle("hidden", game.revivedOnce);
+  ui.reviveAdButton.disabled = game.revivedOnce;
+
+  const canDoubleStars = game.earnedStarsThisRun > 0 && !game.starsDoubled;
+  ui.doubleStarsAdButton.classList.toggle("hidden", !canDoubleStars);
+  ui.doubleStarsAdButton.disabled = !canDoubleStars;
+  setRewardedBusy(locked);
+}
+
+function getResultStarsTotal() {
+  if (!game) return 0;
+  return game.earnedStarsThisRun + (game.rewardedStarsBonus || 0);
+}
+
+/* ------------------------------------------------------------------ events */
 
 function bindEvents() {
   window.addEventListener("resize", resizeCanvas);
   document.addEventListener("visibilitychange", handleVisibilityChange);
-  window.addEventListener("blur", () => pauseActiveGame("window"));
+  window.addEventListener("blur", () => {
+    saveActiveRound(true);
+    pauseActiveGame("window");
+  });
   window.addEventListener("focus", () => resumeSystemPausedGame("window"));
+  window.addEventListener("pagehide", handlePageHide);
+  window.addEventListener("beforeunload", handlePageHide);
+
+  // Игра занимает всю страницу: блокируем браузерные жесты во всех её
+  // состояниях, чтобы правый клик, выделение текста и drag не перехватывали
+  // управление игрой и не показывали системное меню браузера.
   document.addEventListener("contextmenu", suppressBrowserGesture);
   document.addEventListener("selectstart", suppressBrowserGesture);
   document.addEventListener("dragstart", suppressBrowserGesture);
@@ -622,8 +1511,11 @@ function bindEvents() {
     unlockAudio();
     updatePointer(event);
   }, { passive: false });
+  window.addEventListener("keydown", handleKeyDown, { passive: false });
+  window.addEventListener("keyup", handleKeyUp);
 
-  document.getElementById("playButton").addEventListener("click", () => startGame());
+  ui.continueButton.addEventListener("click", () => continueSavedGame());
+  ui.playButton.addEventListener("click", () => startGame());
   ui.dailyRewardButton.addEventListener("click", () => claimDailyReward());
   document.getElementById("restartButton").addEventListener("click", () => restartGameWithOptionalAd());
   ui.reviveAdButton.addEventListener("click", () => reviveWithAd());
@@ -631,18 +1523,39 @@ function bindEvents() {
   ui.gameMenuButton.addEventListener("click", () => returnToMenuFromGame());
   ui.soundToggleButton.addEventListener("click", () => toggleSound());
   updateSoundControls();
+
   document.getElementById("menuButton").addEventListener("click", () => {
-    switchScreen("menu");
     updateMenu();
+    switchScreen("menu");
   });
-  document.getElementById("upgradesButton").addEventListener("click", () => {
+  document.getElementById("upgradesButton").addEventListener("click", (event) => {
     renderUpgrades();
-    switchScreen("upgrades");
+    switchScreen("upgrades", { opener: event.currentTarget });
   });
   document.getElementById("backFromUpgradesButton").addEventListener("click", () => {
     updateMenu();
-    switchScreen("menu");
+    switchScreen("menu", { focusTarget: screenOpeners.upgrades });
   });
+
+  if (ui.resetProgressButton) ui.resetProgressButton.addEventListener("click", () => openResetDialog());
+  if (ui.resetCancelButton) ui.resetCancelButton.addEventListener("click", () => closeResetDialog("cancel"));
+  if (ui.resetConfirmButton) ui.resetConfirmButton.addEventListener("click", () => confirmReset());
+  if (ui.resetDialog) {
+    ui.resetDialog.addEventListener("close", () => {
+      if (resetDialogOpener && document.contains(resetDialogOpener)) {
+        try {
+          resetDialogOpener.focus({ preventScroll: true });
+        } catch (error) {
+          resetDialogOpener.focus();
+        }
+      }
+      resetDialogOpener = null;
+    });
+    ui.resetDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeResetDialog("cancel");
+    });
+  }
 }
 
 function suppressBrowserGesture(event) {
@@ -651,11 +1564,14 @@ function suppressBrowserGesture(event) {
 }
 
 function suppressGameplayTouchMove(event) {
-  if (currentScreen === "game" && event.cancelable) event.preventDefault();
+  if (currentScreen !== "game" || !event.cancelable) return;
+  if (event.target instanceof Element && event.target.closest("button")) return;
+  event.preventDefault();
 }
 
 function suppressGameplayPointerEvent(event) {
   if (!game || !game.running || !event.cancelable) return;
+  if (event.target instanceof Element && event.target.closest("button")) return;
   event.preventDefault();
 }
 
@@ -663,6 +1579,47 @@ function handlePointerMove(event) {
   suppressGameplayPointerEvent(event);
   updatePointer(event);
 }
+
+function handleKeyDown(event) {
+  if (ui.resetDialog?.open) return;
+
+  if (event.key === "Escape" && currentScreen === "game" && game) {
+    event.preventDefault();
+    returnToMenuFromGame();
+    return;
+  }
+
+  if (!MOVEMENT_KEYS.has(event.code)) return;
+  if (currentScreen !== "game" || !game || !game.running) return;
+
+  pressedMovementKeys.add(event.code);
+  if (event.code.startsWith("Arrow") && event.cancelable) event.preventDefault();
+}
+
+function handleKeyUp(event) {
+  pressedMovementKeys.delete(event.code);
+}
+
+function applyKeyboardMovement(dt) {
+  if (!pressedMovementKeys.size || !game || !game.running) return;
+
+  let dx = 0;
+  let dy = 0;
+  for (const code of pressedMovementKeys) {
+    const vector = MOVEMENT_KEYS.get(code);
+    if (!vector) continue;
+    dx += vector[0];
+    dy += vector[1];
+  }
+  if (dx === 0 && dy === 0) return;
+
+  const length = Math.hypot(dx, dy) || 1;
+  const player = game.player;
+  player.tx = clamp(player.tx + (dx / length) * KEYBOARD_SPEED * dt, 20, Math.max(21, width - 20));
+  player.ty = clamp(player.ty + (dy / length) * KEYBOARD_SPEED * dt, 20, Math.max(21, height - 20));
+}
+
+/* ----------------------------------------------------------------- screens */
 
 function resizeCanvas() {
   dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -679,18 +1636,76 @@ function resizeCanvas() {
   }
 }
 
-function switchScreen(name) {
-  currentScreen = name;
-  Object.entries(screens).forEach(([screenName, element]) => {
-    element.classList.toggle("screen-active", screenName === name);
-  });
+function fitMenuToViewport() {
+  const screen = screens.menu;
+  const panel = screen.querySelector('.panel');
+  const styles = getComputedStyle(screen);
+  const top = parseFloat(styles.paddingTop);
+  const bottom = parseFloat(styles.paddingBottom);
+  const left = parseFloat(styles.paddingLeft);
+  const right = parseFloat(styles.paddingRight);
+  const available = Math.max(1, screen.clientHeight - top - bottom);
+  panel.style.setProperty('--menu-scale', Math.min(1, available / Math.max(1, panel.offsetHeight)));
+  panel.style.top = `${top + available / 2}px`;
+  panel.style.left = `${left + (screen.clientWidth - left - right) / 2}px`;
 }
+
+function switchScreen(name, options = {}) {
+  const previous = currentScreen;
+  currentScreen = name;
+  if (options.opener) screenOpeners[name] = options.opener;
+  if (name !== "gameOver") showAdNotice(null);
+
+  Object.entries(screens).forEach(([screenName, element]) => {
+    const isActive = screenName === name;
+    element.classList.toggle("screen-active", isActive);
+    if (isActive) {
+      element.removeAttribute("inert");
+      element.removeAttribute("aria-hidden");
+    } else {
+      element.setAttribute("inert", "");
+      element.setAttribute("aria-hidden", "true");
+    }
+  });
+
+  if (options.initial) return;
+  if (previous === name && !options.focusTarget) return;
+  moveFocusIntoScreen(name, options.focusTarget);
+}
+
+function moveFocusIntoScreen(name, explicitTarget) {
+  const screen = screens[name];
+  if (!screen) return;
+
+  // Класс переключён в этом же такте: без принудительного пересчёта стилей
+  // экран ещё считается visibility:hidden и focus() молча не срабатывает.
+  if (getComputedStyle(screen).visibility !== "visible") return;
+
+  let target = null;
+  if (explicitTarget && screen.contains(explicitTarget) && !explicitTarget.disabled) {
+    target = explicitTarget;
+  }
+  if (!target) target = document.getElementById(screenHeadingIds[name]);
+  if (!target || !screen.contains(target)) target = screen.querySelector("button:not([disabled])");
+  if (!target) return;
+
+  try {
+    target.focus({ preventScroll: true });
+  } catch (error) {
+    target.focus();
+  }
+}
+
+/* -------------------------------------------------------------- game flow */
 
 function startGame() {
   if (vacuumPlayerImage.complete && vacuumPlayerImage.naturalWidth > 0) {
     vacuumPlayerImageLoaded = true;
   }
 
+  // Явный запуск нового раунда всегда отбрасывает сохранённый незавершённый
+  // раунд, чтобы кнопки «Начать заново» и «Продолжить игру» не пересекались.
+  clearActiveRound();
   ensureDailyState();
   unlockAudio();
   const extraLife = progress.upgrades.life > 0 ? 1 : 0;
@@ -698,7 +1713,9 @@ function startGame() {
   const startY = height * 0.58;
 
   game = {
-    running: true,
+    running: systemPauseReasons.size === 0,
+    finished: false,
+    pausedBySystem: systemPauseReasons.values().next().value || "",
     score: 0,
     lives: 3 + extraLife,
     maxLives: 3 + extraLife,
@@ -732,19 +1749,47 @@ function startGame() {
   };
 
   applyStartingBoosters();
+  pressedMovementKeys.clear();
+  activeSaveRevision = 0;
   ui.bonusPill.classList.add("hidden");
+  showAdNotice(null);
   updateHud();
   switchScreen("game");
-  markGameplayStart();
+  if (game.running) markGameplayStart();
+  saveActiveRound(true);
+}
+
+function continueSavedGame() {
+  if (game && !game.finished) return;
+  if (!restoreActiveRound()) {
+    updateMenu();
+    return;
+  }
+
+  game.running = systemPauseReasons.size === 0;
+  game.pausedBySystem = systemPauseReasons.values().next().value || "";
+
+  unlockAudio();
+  updateHud();
+  updateRewardButtons();
+  switchScreen("game");
+  if (game.running) markGameplayStart();
 }
 
 function returnToMenuFromGame() {
+  saveActiveRound(true);
   markGameplayStop();
-  if (game) game.running = false;
+  if (game) {
+    game.running = false;
+    game.finished = true;
+  }
+  game = null;
+  pressedMovementKeys.clear();
   ui.bonusPill.classList.add("hidden");
   updateMenu();
   switchScreen("menu");
 }
+
 function restartGameWithOptionalAd() {
   if (progress.roundsSinceInterstitial >= 3) {
     progress.roundsSinceInterstitial = 0;
@@ -760,6 +1805,12 @@ function endGame() {
   if (!game || !game.running) return;
   markGameplayStop();
   game.running = false;
+  game.finished = true;
+  pressedMovementKeys.clear();
+
+  // Активный ключ очищается ДО показа Result, чтобы reload на Result
+  // не мог восстановить завершённый раунд и повторно начислить награды.
+  clearActiveRound();
 
   if (!game.interstitialCounted) {
     progress.roundsSinceInterstitial += 1;
@@ -774,15 +1825,14 @@ function endGame() {
   const earned = Math.max(0, totalEarned - game.earnedStarsThisRun);
   game.earnedStarsThisRun += earned;
   game.starsAwarded = true;
-  progress.stars += earned;
+  progress.stars = Math.max(0, progress.stars + earned);
   progress.bestScore = Math.max(progress.bestScore, game.score);
   saveProgress();
-
-  // Здесь позже можно отправить score в лидерборд Yandex Games SDK.
 
   ui.finalScore.textContent = game.score;
   ui.finalBestScore.textContent = progress.bestScore;
   ui.earnedStars.textContent = getResultStarsTotal();
+  showAdNotice(null);
   updateRewardButtons();
   updateMenu();
   renderUpgrades();
@@ -790,95 +1840,10 @@ function endGame() {
   playSound("over");
 }
 
-function reviveWithAd() {
-  if (!game || game.running || game.revivedOnce) return;
-
-  let rewardGranted = false;
-  ui.reviveAdButton.disabled = true;
-  showRewardedAd({
-    onReward: () => {
-      rewardGranted = true;
-    },
-    onClose: () => {
-      if (!rewardGranted) {
-        updateRewardButtons();
-        return;
-      }
-
-      game.revivedOnce = true;
-      game.running = true;
-      game.pausedBySystem = "";
-      markGameplayStart();
-      game.lives = 1;
-      game.combo = 1;
-      game.streak = 0;
-      game.shake = 0;
-      game.vacuumStartTimer = VACUUM_START_DURATION;
-      game.thoughts = [];
-      game.particles = [];
-      updateHud();
-      updateRewardButtons();
-      switchScreen("game");
-      playSound("buy");
-    },
-    onError: () => updateRewardButtons()
-  });
-}
-
-function doubleStarsWithAd() {
-  if (!game || game.running || game.starsDoubled || game.earnedStarsThisRun <= 0) return;
-
-  let rewardGranted = false;
-  ui.doubleStarsAdButton.disabled = true;
-  showRewardedAd({
-    onReward: () => {
-      rewardGranted = true;
-    },
-    onClose: () => {
-      if (!rewardGranted) {
-        updateRewardButtons();
-        return;
-      }
-
-      const bonusStars = game.earnedStarsThisRun;
-      game.starsDoubled = true;
-      game.rewardedStarsBonus += bonusStars;
-      progress.stars += bonusStars;
-      saveProgress();
-      ui.earnedStars.textContent = getResultStarsTotal();
-      updateRewardButtons();
-      updateMenu();
-      renderUpgrades();
-      playSound("gold");
-    },
-    onError: () => updateRewardButtons()
-  });
-}
-
-function updateRewardButtons() {
-  if (!game || game.running) {
-    ui.reviveAdButton.classList.add("hidden");
-    ui.doubleStarsAdButton.classList.add("hidden");
-    return;
-  }
-
-  ui.reviveAdButton.classList.toggle("hidden", game.revivedOnce);
-  ui.reviveAdButton.disabled = game.revivedOnce;
-
-  const canDoubleStars = game.earnedStarsThisRun > 0 && !game.starsDoubled;
-  ui.doubleStarsAdButton.classList.toggle("hidden", !canDoubleStars);
-  ui.doubleStarsAdButton.disabled = !canDoubleStars;
-}
-
-function getResultStarsTotal() {
-  if (!game) return 0;
-  return game.earnedStarsThisRun + (game.rewardedStarsBonus || 0);
-}
-
 function updatePointer(event) {
   if (!game || !game.running) return;
-  game.player.tx = clamp(event.clientX, 20, width - 20);
-  game.player.ty = clamp(event.clientY, 20, height - 20);
+  game.player.tx = clamp(event.clientX, 20, Math.max(21, width - 20));
+  game.player.ty = clamp(event.clientY, 20, Math.max(21, height - 20));
 }
 
 function loop(time) {
@@ -899,6 +1864,8 @@ function updateGame(dt) {
   game.magnetTimer = Math.max(0, game.magnetTimer - dt);
   game.doubleTimer = Math.max(0, game.doubleTimer - dt);
   game.vacuumStartTimer = Math.max(0, game.vacuumStartTimer - dt);
+
+  applyKeyboardMovement(dt);
 
   const player = game.player;
   const follow = 1 - Math.pow(0.0009, dt);
@@ -940,8 +1907,9 @@ function updateGame(dt) {
     }
 
     if (dist < player.radius + thought.radius * 0.65) {
-      collectThought(thought);
       game.thoughts.splice(i, 1);
+      collectThought(thought);
+      if (!game || !game.running) return;
       continue;
     }
 
@@ -952,6 +1920,7 @@ function updateGame(dt) {
 
   updateParticles(dt);
   updateHud();
+  saveActiveRound();
 }
 
 function spawnThought() {
@@ -979,15 +1948,22 @@ function spawnThought() {
   const angle = Math.atan2(targetY - y, targetX - x) + random(-0.65, 0.65);
   const speed = random(60, 128) + Math.min(70, game.elapsed * 2);
   const roll = Math.random();
-  const type = roll < 0.14 ? "bad" : roll > 0.92 ? "gold" : "good";
-  const emojis = type === "bad" ? BAD_EMOJIS : type === "gold" ? GOLD_EMOJIS : GOOD_EMOJIS;
+  const type = roll < 0.14 ? "bad" : roll > 0.92 ? "gold" : roll > 0.87 ? "rainbow" : "good";
+  const emojis = type === "bad"
+    ? BAD_EMOJIS
+    : type === "gold"
+      ? GOLD_EMOJIS
+      : type === "rainbow"
+        ? RAINBOW_EMOJIS
+        : GOOD_EMOJIS;
+  if (type === "rainbow") diagnostics.rainbowSpawns += 1;
 
   game.thoughts.push({
     x,
     y,
     vx: Math.cos(angle) * speed,
     vy: Math.sin(angle) * speed,
-    radius: type === "gold" ? 25 : 22,
+    radius: type === "gold" ? 25 : type === "rainbow" ? 24 : 22,
     type,
     emoji: pick(emojis),
     spin: random(0, Math.PI * 2),
@@ -997,6 +1973,8 @@ function spawnThought() {
 }
 
 function collectThought(thought) {
+  playSound("pop");
+
   if (thought.type === "bad") {
     if (game.shieldActive) {
       game.shieldActive = false;
@@ -1005,6 +1983,7 @@ function collectThought(thought) {
       game.shake = 0.45;
       burst(thought.x, thought.y, "#b9fff3", 22);
       playSound("gold");
+      saveActiveRound(true);
       return;
     }
 
@@ -1014,32 +1993,40 @@ function collectThought(thought) {
     game.shake = 1;
     burst(thought.x, thought.y, "#ff5b6e", 18);
     playSound("bad");
-    if (game.lives <= 0) endGame();
+    if (game.lives <= 0) {
+      endGame();
+      return;
+    }
+    saveActiveRound(true);
     return;
   }
 
-  let points = thought.type === "gold" ? 50 : 10;
+  let points = thought.type === "gold" ? 50 : thought.type === "rainbow" ? 25 : 10;
   if (game.doubleTimer > 0) points *= 2;
   points *= game.combo;
   game.score += points;
+  if (thought.type === "rainbow") diagnostics.lastRainbowPoints = points;
 
-  if (thought.type === "good") {
+  if (thought.type === "good" || thought.type === "rainbow") {
+    if (thought.type === "rainbow") diagnostics.rainbowCollections += 1;
     addTaskProgress("goodThoughts", 1);
     game.streak += 1;
     if (game.streak % 5 === 0) {
-      game.combo = Math.min(5, game.combo + 1);
+      game.combo = Math.min(MAX_COMBO, game.combo + 1);
       game.maxComboThisRun = Math.max(game.maxComboThisRun, game.combo);
       addTaskProgress("combo", game.combo);
       playSound("combo");
+      saveActiveRound(true);
     } else {
       playSound("good");
     }
-    burst(thought.x, thought.y, "#7ee7c8", 14);
+    burst(thought.x, thought.y, thought.type === "rainbow" ? "#8878ff" : "#7ee7c8", thought.type === "rainbow" ? 20 : 14);
   } else {
     addTaskProgress("goldThoughts", 1);
     applyRandomBonus();
     burst(thought.x, thought.y, "#ffd34f", 24);
     playSound("gold");
+    saveActiveRound(true);
   }
 }
 
@@ -1118,6 +2105,33 @@ function updateMenu() {
   ensureDailyState();
   ui.menuBestScore.textContent = progress.bestScore;
   renderDailyReward();
+
+  const hasResumableRound = Boolean(getResumableActiveRound());
+  screens.menu.classList.toggle("has-resumable-round", hasResumableRound);
+  if (ui.continueButton) {
+    ui.continueButton.classList.toggle("hidden", !hasResumableRound);
+    ui.continueButton.setAttribute("aria-hidden", String(!hasResumableRound));
+  }
+  if (ui.playButton) {
+    ui.playButton.textContent = hasResumableRound ? tr("newGame") : tr("play");
+    ui.playButton.classList.toggle("primary-button", !hasResumableRound);
+    ui.playButton.classList.toggle("secondary-button", hasResumableRound);
+  }
+}
+
+/* ------------------------------------------------------- shop and dailies */
+
+function beginTransaction(key) {
+  if (transactionInProgress) return false;
+  const now = Date.now();
+  if (now < (purchaseCooldowns.get(key) || 0)) return false;
+  transactionInProgress = true;
+  return true;
+}
+
+function endTransaction(key, committed) {
+  transactionInProgress = false;
+  if (committed) purchaseCooldowns.set(key, Date.now() + PURCHASE_COOLDOWN_MS);
 }
 
 function renderUpgrades() {
@@ -1139,6 +2153,7 @@ function renderUpgrades() {
     text.innerHTML = `<h3>${infoTitle(info)} ${level}/${info.max}</h3><p>${infoText(info)}</p>`;
 
     const button = document.createElement("button");
+    button.type = "button";
     button.textContent = isMax ? tr("max") : `★ ${cost}`;
     button.disabled = isMax || progress.stars < cost;
     button.addEventListener("click", () => buyUpgrade(key));
@@ -1160,6 +2175,7 @@ function renderUpgrades() {
     text.innerHTML = `<strong>${infoTitle(info)}</strong><span>${infoText(info)} ${tr("ownedCount", { count, max: MAX_BOOSTERS })}</span>`;
 
     const button = document.createElement("button");
+    button.type = "button";
     button.textContent = count >= MAX_BOOSTERS ? tr("max") : `★ ${info.cost}`;
     button.disabled = count >= MAX_BOOSTERS || progress.stars < info.cost;
     button.addEventListener("click", () => buyBooster(key));
@@ -1182,7 +2198,10 @@ function renderUpgrades() {
     text.innerHTML = `<strong>${infoTitle(info)}</strong><span>${owned ? tr("ownedForever") : tr("price", { cost: info.cost })}</span>`;
 
     const button = document.createElement("button");
+    button.type = "button";
     button.textContent = selected ? tr("selected") : owned ? tr("select") : `★ ${info.cost}`;
+    // Скины ведут себя как единая toggle-группа: ровно один owned скин выбран.
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
     button.disabled = selected || (!owned && progress.stars < info.cost);
     button.addEventListener("click", () => buyOrSelectSkin(key));
 
@@ -1203,6 +2222,7 @@ function renderUpgrades() {
     text.innerHTML = `<strong>${infoTitle(info)}</strong><span>${current}/${info.target} · ${tr("reward", { value: DAILY_TASK_REWARD })}</span>`;
 
     const button = document.createElement("button");
+    button.type = "button";
     button.textContent = task.claimed ? tr("done") : isDone ? tr("claim") : `${current}/${info.target}`;
     button.disabled = task.claimed || !isDone;
     button.addEventListener("click", () => claimTaskReward(task.id));
@@ -1213,50 +2233,97 @@ function renderUpgrades() {
 
   const allClaimed = progress.dailyTasks.length > 0 && progress.dailyTasks.every((task) => task.claimed);
   if (allClaimed && !progress.dailyTasksCompletedBonusClaimed) {
-    progress.stars += DAILY_ALL_TASKS_REWARD;
+    progress.stars = Math.max(0, progress.stars + DAILY_ALL_TASKS_REWARD);
     progress.dailyTasksCompletedBonusClaimed = true;
     saveProgress();
     ui.starsCount.textContent = progress.stars;
     playSound("gold");
   }
 
-  ui.tasksBonusText.textContent = progress.dailyTasksCompletedBonusClaimed ? tr("allTasksClaimed") : tr("allTasksBonus", { value: DAILY_ALL_TASKS_REWARD });
+  ui.tasksBonusText.textContent = progress.dailyTasksCompletedBonusClaimed
+    ? tr("allTasksClaimed")
+    : tr("allTasksBonus", { value: DAILY_ALL_TASKS_REWARD });
+}
+
+function buyUpgrade(key) {
+  const info = upgradeInfo[key];
+  if (!info) return;
+
+  const transactionKey = `upgrade:${key}`;
+  if (!beginTransaction(transactionKey)) return;
+  let committed = false;
+
+  try {
+    const level = readInt(progress.upgrades[key], 0, info.max, 0);
+    const cost = info.costs[level] || 0;
+    if (level >= info.max || cost <= 0 || progress.stars < cost) return;
+
+    progress.stars = Math.max(0, progress.stars - cost);
+    progress.upgrades[key] = level + 1;
+    committed = true;
+    saveProgress();
+    renderUpgrades();
+    playSound("buy");
+  } finally {
+    endTransaction(transactionKey, committed);
+  }
 }
 
 function buyBooster(key) {
   const info = boosterInfo[key];
   if (!info) return;
 
-  const count = progress.boosters[key] || 0;
-  if (count >= MAX_BOOSTERS || progress.stars < info.cost) return;
+  const transactionKey = `booster:${key}`;
+  if (!beginTransaction(transactionKey)) return;
+  let committed = false;
 
-  progress.stars -= info.cost;
-  progress.boosters[key] = count + 1;
-  saveProgress();
-  renderUpgrades();
-  playSound("buy");
+  try {
+    const count = readInt(progress.boosters[key], 0, MAX_BOOSTERS, 0);
+    if (count >= MAX_BOOSTERS || progress.stars < info.cost) return;
+
+    progress.stars = Math.max(0, progress.stars - info.cost);
+    progress.boosters[key] = count + 1;
+    committed = true;
+    saveProgress();
+    renderUpgrades();
+    playSound("buy");
+  } finally {
+    endTransaction(transactionKey, committed);
+  }
 }
 
 function buyOrSelectSkin(key) {
   const info = skinInfo[key];
   if (!info) return;
 
-  if (progress.ownedSkins.includes(key)) {
+  const transactionKey = `skin:${key}`;
+  if (!beginTransaction(transactionKey)) return;
+  let committed = false;
+
+  try {
+    if (progress.ownedSkins.includes(key)) {
+      // Выбор уже купленного скина ничего не списывает и идемпотентен по своей природе
+      // (повторный выбор того же скина — no-op), поэтому антидребезг покупок к нему не применяется.
+      if (progress.activeSkin === key) return;
+      progress.activeSkin = key;
+      saveProgress();
+      renderUpgrades();
+      playSound("buy");
+      return;
+    }
+
+    if (progress.stars < info.cost) return;
+
+    progress.stars = Math.max(0, progress.stars - info.cost);
+    progress.ownedSkins.push(key);
     progress.activeSkin = key;
+    committed = true;
     saveProgress();
     renderUpgrades();
-    playSound("buy");
-    return;
+    playSound("gold");
+  } finally {
+    endTransaction(transactionKey, committed);
   }
-
-  if (progress.stars < info.cost) return;
-
-  progress.stars -= info.cost;
-  progress.ownedSkins.push(key);
-  progress.activeSkin = key;
-  saveProgress();
-  renderUpgrades();
-  playSound("gold");
 }
 
 function applyStartingBoosters() {
@@ -1283,24 +2350,15 @@ function applyStartingBoosters() {
   if (changed) saveProgress();
 }
 
-function buyUpgrade(key) {
-  const info = upgradeInfo[key];
-  const level = progress.upgrades[key];
-  const cost = info.costs[level] || 0;
-
-  if (level >= info.max || progress.stars < cost) return;
-
-  progress.stars -= cost;
-  progress.upgrades[key] += 1;
-  saveProgress();
-  renderUpgrades();
-  playSound("buy");
+function isDailyRewardClaimed() {
+  const today = getTodayKey();
+  // Сравнение ">=" защищает от перевода часов назад: дата из будущего
+  // считается уже полученной наградой и не даёт фармить бонус.
+  return progress.dailyRewardDate !== "" && progress.dailyRewardDate >= today;
 }
 
 function renderDailyReward() {
-  const today = getTodayKey();
-  const isClaimed = progress.dailyRewardDate === today;
-
+  const isClaimed = isDailyRewardClaimed();
   ui.dailyRewardText.textContent = isClaimed ? tr("dailyRewardClaimed") : tr("dailyRewardReady");
   ui.dailyRewardButton.textContent = isClaimed ? tr("done") : `★ ${DAILY_REWARD_STARS}`;
   ui.dailyRewardButton.disabled = isClaimed;
@@ -1308,28 +2366,46 @@ function renderDailyReward() {
 
 function claimDailyReward() {
   ensureDailyState();
-  const today = getTodayKey();
-  if (progress.dailyRewardDate === today) return;
+  if (isDailyRewardClaimed()) return;
 
-  progress.dailyRewardDate = today;
-  progress.stars += DAILY_REWARD_STARS;
-  saveProgress();
-  renderDailyReward();
-  renderUpgrades();
-  playSound("gold");
+  const transactionKey = "daily:reward";
+  if (!beginTransaction(transactionKey)) return;
+  let committed = false;
+
+  try {
+    if (isDailyRewardClaimed()) return;
+    progress.dailyRewardDate = getTodayKey();
+    progress.stars = Math.max(0, progress.stars + DAILY_REWARD_STARS);
+    committed = true;
+    saveProgress();
+    renderDailyReward();
+    renderUpgrades();
+    playSound("gold");
+  } finally {
+    endTransaction(transactionKey, committed);
+  }
 }
 
 function claimTaskReward(taskId) {
   ensureDailyState();
-  const task = progress.dailyTasks.find((item) => item.id === taskId);
-  const info = taskDefinitions[taskId];
-  if (!task || !info || task.claimed || task.progress < info.target) return;
+  const transactionKey = `task:${taskId}`;
+  if (!beginTransaction(transactionKey)) return;
+  let committed = false;
 
-  task.claimed = true;
-  progress.stars += DAILY_TASK_REWARD;
-  saveProgress();
-  renderUpgrades();
-  playSound("buy");
+  try {
+    const task = progress.dailyTasks.find((item) => item.id === taskId);
+    const info = taskDefinitions[taskId];
+    if (!task || !info || task.claimed || task.progress < info.target) return;
+
+    task.claimed = true;
+    progress.stars = Math.max(0, progress.stars + DAILY_TASK_REWARD);
+    committed = true;
+    saveProgress();
+    renderUpgrades();
+    playSound("buy");
+  } finally {
+    endTransaction(transactionKey, committed);
+  }
 }
 
 function addTaskProgress(taskId, amount) {
@@ -1337,34 +2413,16 @@ function addTaskProgress(taskId, amount) {
   const task = progress.dailyTasks.find((item) => item.id === taskId);
   const info = taskDefinitions[taskId];
   if (!task || !info || task.claimed) return;
+  if (!finiteNumber(amount)) return;
 
   if (taskId === "score" || taskId === "combo") {
-    task.progress = Math.max(task.progress, amount);
+    task.progress = Math.max(task.progress, Math.trunc(amount));
   } else {
-    task.progress += amount;
+    task.progress += Math.trunc(amount);
   }
 
-  task.progress = Math.min(task.progress, info.target);
+  task.progress = clamp(task.progress, 0, info.target);
   saveProgress();
-}
-
-function normalizeBoosters(boosters) {
-  return {
-    magnetStart: clamp(Number(boosters?.magnetStart) || 0, 0, MAX_BOOSTERS),
-    shield: clamp(Number(boosters?.shield) || 0, 0, MAX_BOOSTERS),
-    doubleStart: clamp(Number(boosters?.doubleStart) || 0, 0, MAX_BOOSTERS)
-  };
-}
-
-function normalizeOwnedSkins(ownedSkins) {
-  const owned = Array.isArray(ownedSkins) ? ownedSkins.filter((key) => skinInfo[key]) : [];
-  if (!owned.includes("blue")) owned.unshift("blue");
-  return [...new Set(owned)];
-}
-
-function normalizeActiveSkin(activeSkin, ownedSkins) {
-  const owned = normalizeOwnedSkins(ownedSkins);
-  return owned.includes(activeSkin) ? activeSkin : "blue";
 }
 
 function getActiveSkin() {
@@ -1373,9 +2431,15 @@ function getActiveSkin() {
 
 function ensureDailyState() {
   const today = getTodayKey();
-  const validTasks = Array.isArray(progress.dailyTasks) && progress.dailyTasks.every((task) => taskDefinitions[task.id]);
+  const validTasks = Array.isArray(progress.dailyTasks) &&
+    progress.dailyTasks.length === 3 &&
+    progress.dailyTasks.every((task) => isPlainObject(task) && Object.hasOwn(taskDefinitions, task.id));
 
-  if (progress.dailyTasksDate !== today || !validTasks || progress.dailyTasks.length !== 3) {
+  // Сброс только при реально новом дне. Дата из будущего (часы переведены назад)
+  // не сбрасывает задания, иначе прогресс можно было бы фармить бесконечно.
+  const isNewDay = progress.dailyTasksDate === "" || progress.dailyTasksDate < today;
+
+  if (isNewDay || !validTasks) {
     progress.dailyTasksDate = today;
     progress.dailyTasks = createDailyTasks(today);
     progress.dailyTasksCompletedBonusClaimed = false;
@@ -1383,19 +2447,16 @@ function ensureDailyState() {
     return;
   }
 
-  progress.dailyTasks = progress.dailyTasks.map((task) => {
-    const info = taskDefinitions[task.id];
-    return {
-      id: task.id,
-      progress: clamp(Number(task.progress) || 0, 0, info.target),
-      claimed: Boolean(task.claimed)
-    };
-  });
+  progress.dailyTasks = progress.dailyTasks.map((task) => ({
+    id: task.id,
+    progress: readInt(task.progress, 0, taskDefinitions[task.id].target, 0),
+    claimed: readBool(task.claimed, false)
+  }));
 }
 
 function createDailyTasks(dateKey) {
   const ids = Object.keys(taskDefinitions);
-  const seed = dateKey.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const seed = String(dateKey).split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const shifted = ids.map((id, index) => ids[(index + seed) % ids.length]);
 
   return shifted.slice(0, 3).map((id) => ({
@@ -1412,6 +2473,58 @@ function getTodayKey() {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+
+/* ------------------------------------------------------------ reset flow */
+
+function openResetDialog() {
+  if (!ui.resetDialog || ui.resetDialog.open) return;
+  resetDialogOpener = document.activeElement instanceof HTMLElement ? document.activeElement : ui.resetProgressButton;
+  ui.resetDialog.showModal();
+  try {
+    ui.resetCancelButton?.focus({ preventScroll: true });
+  } catch (error) {
+    ui.resetCancelButton?.focus();
+  }
+}
+
+function closeResetDialog() {
+  if (!ui.resetDialog || !ui.resetDialog.open) return;
+  ui.resetDialog.close();
+}
+
+function confirmReset() {
+  const previousRevision = readInt(progress.revision, 0, Number.MAX_SAFE_INTEGER, 0);
+  // Фокус после сброса уходит в Menu, а не обратно на кнопку в скрытом экране.
+  resetDialogOpener = null;
+
+  storageRemove(ACTIVE_KEY);
+  storageRemove(STORAGE_KEY);
+
+  markGameplayStop();
+  game = null;
+  pressedMovementKeys.clear();
+  purchaseCooldowns.clear();
+
+  progress = defaultProgress();
+  // Revision продолжает расти, иначе облачная копия старого прогресса
+  // выиграла бы merge и вернула удалённые данные обратно.
+  progress.revision = previousRevision;
+  ensureDailyState();
+  saveProgress();
+  scheduleCloudSave(true);
+
+  ui.bonusPill.classList.add("hidden");
+  showAdNotice(null);
+  applyLanguage();
+  renderUpgrades();
+  updateMenu();
+  updateSoundControls();
+  closeResetDialog();
+  switchScreen("menu");
+  playSound("buy");
+}
+
+/* ------------------------------------------------------------- rendering */
 
 function draw() {
   drawBackground();
@@ -1491,6 +2604,13 @@ function drawThought(thought) {
       glow: "rgba(255, 200, 61, 0.34)",
       badge: "★",
       badgeFill: "#ffae00"
+    },
+    rainbow: {
+      gradient: ["#ffffff", "#e9e3ff"],
+      stroke: "#8878ff",
+      glow: "rgba(136, 120, 255, 0.30)",
+      badge: "✦",
+      badgeFill: "#8878ff"
     }
   }[thought.type];
 
@@ -1510,6 +2630,21 @@ function drawThought(thought) {
   ctx.lineWidth = 4;
   ctx.strokeStyle = style.stroke;
   ctx.stroke();
+
+  if (thought.type === "rainbow") {
+    ctx.save();
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    RAINBOW_COLORS.forEach((color, index) => {
+      const start = -Math.PI / 2 + (index / RAINBOW_COLORS.length) * Math.PI * 2;
+      const end = -Math.PI / 2 + ((index + 0.82) / RAINBOW_COLORS.length) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.arc(0, 0, thought.radius + 6, start, end);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
 
   ctx.font = `${thought.radius + 3}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
   ctx.textAlign = "center";
@@ -1546,6 +2681,12 @@ function drawParticle(particle) {
 function drawPlayer(x, y) {
   ctx.save();
   ctx.translate(x, y);
+
+  // Масштабирует только presentation-layer. Collision/suction radius остаются
+  // в игровых координатах и не меняют баланс на мобильных экранах.
+  const visualScale = getPlayerVisualScale(window.innerWidth, window.innerHeight);
+  diagnostics.playerVisualScale = visualScale;
+  ctx.scale(visualScale, visualScale);
 
   const auraPulse = game && game.running ? 1 + Math.sin(game.elapsed * 4) * 0.06 : 1;
   const skin = getActiveSkin();
@@ -1589,6 +2730,12 @@ function drawPlayer(x, y) {
   }
   ctx.restore();
   return;
+}
+
+function getPlayerVisualScale(viewportWidth = window.innerWidth, viewportHeight = window.innerHeight) {
+  if (viewportHeight <= 520 || viewportWidth <= 340) return 0.28;
+  if (viewportWidth <= 420) return 0.32;
+  return 0.4;
 }
 
 function drawVacuumBitmap(startProgress, startupGlow) {
@@ -1907,65 +3054,91 @@ function startVacuumLoop() {
   const rumble = audioContext.createOscillator();
   const rumbleGain = audioContext.createGain();
   const noise = audioContext.createBufferSource();
-  const noiseLowFilter = audioContext.createBiquadFilter();
-  const noiseAirFilter = audioContext.createBiquadFilter();
-  const noiseGain = audioContext.createGain();
+  const motorNoiseFilter = audioContext.createBiquadFilter();
+  const motorNoiseGain = audioContext.createGain();
+  const airNoiseFilter = audioContext.createBiquadFilter();
+  const airNoiseGain = audioContext.createGain();
+  const airLfo = audioContext.createOscillator();
+  const airLfoGain = audioContext.createGain();
+  const compressor = audioContext.createDynamicsCompressor();
   const masterGain = audioContext.createGain();
   const bufferSize = Math.max(1, Math.floor(audioContext.sampleRate * 0.55));
   const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
   const data = buffer.getChannelData(0);
+  let brownNoise = 0;
 
   for (let i = 0; i < bufferSize; i += 1) {
-    const grain = Math.random() * 2 - 1;
-    const flutter = Math.sin(i * 0.045) * 0.18;
-    data[i] = (grain + flutter) * 0.5;
+    brownNoise = brownNoise * 0.985 + (Math.random() * 2 - 1) * 0.11;
+    data[i] = clamp(brownNoise * 3.2, -1, 1);
   }
 
-  hum.type = "sawtooth";
-  hum.frequency.setValueAtTime(42, now);
-  hum.frequency.exponentialRampToValueAtTime(118, now + 0.55);
-  hum.frequency.setTargetAtTime(106, now + 0.7, 0.7);
-  humGain.gain.setValueAtTime(0.36, now);
+  // Низкий синус и мягкий треугольник имитируют двигатель без режущих
+  // гармоник, которые давали неприятный «писк» у старой пилы.
+  hum.type = "sine";
+  hum.frequency.setValueAtTime(52, now);
+  hum.frequency.exponentialRampToValueAtTime(74, now + 0.65);
+  hum.frequency.setTargetAtTime(70, now + 0.8, 0.75);
+  humGain.gain.setValueAtTime(0.16, now);
 
   rumble.type = "triangle";
-  rumble.frequency.setValueAtTime(27, now);
-  rumble.frequency.exponentialRampToValueAtTime(54, now + 0.45);
-  rumbleGain.gain.setValueAtTime(0.2, now);
+  rumble.frequency.setValueAtTime(31, now);
+  rumble.frequency.exponentialRampToValueAtTime(43, now + 0.55);
+  rumbleGain.gain.setValueAtTime(0.11, now);
 
   noise.buffer = buffer;
   noise.loop = true;
-  noiseLowFilter.type = "lowpass";
-  noiseLowFilter.frequency.setValueAtTime(650, now);
-  noiseLowFilter.frequency.exponentialRampToValueAtTime(1850, now + 0.65);
-  noiseLowFilter.Q.setValueAtTime(0.45, now);
-  noiseAirFilter.type = "bandpass";
-  noiseAirFilter.frequency.setValueAtTime(850, now);
-  noiseAirFilter.frequency.exponentialRampToValueAtTime(1450, now + 0.5);
-  noiseAirFilter.Q.setValueAtTime(0.9, now);
-  noiseGain.gain.setValueAtTime(0.64, now);
+  motorNoiseFilter.type = "lowpass";
+  motorNoiseFilter.frequency.setValueAtTime(300, now);
+  motorNoiseFilter.frequency.exponentialRampToValueAtTime(520, now + 0.7);
+  motorNoiseFilter.Q.setValueAtTime(0.45, now);
+  motorNoiseGain.gain.setValueAtTime(0.34, now);
+
+  // Небольшая приглушённая воздушная составляющая делает звук похожим на
+  // работающий бытовой пылесос, но не добавляет болезненного верхнего шума.
+  airNoiseFilter.type = "bandpass";
+  airNoiseFilter.frequency.setValueAtTime(560, now);
+  airNoiseFilter.frequency.exponentialRampToValueAtTime(900, now + 0.65);
+  airNoiseFilter.Q.setValueAtTime(0.55, now);
+  airNoiseGain.gain.setValueAtTime(0.105, now);
+  airLfo.type = "sine";
+  airLfo.frequency.setValueAtTime(0.7, now);
+  airLfoGain.gain.setValueAtTime(0.022, now);
+
+  compressor.threshold.setValueAtTime(-28, now);
+  compressor.knee.setValueAtTime(18, now);
+  compressor.ratio.setValueAtTime(4, now);
+  compressor.attack.setValueAtTime(0.02, now);
+  compressor.release.setValueAtTime(0.3, now);
 
   masterGain.gain.setValueAtTime(0.001, now);
-  masterGain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume * 0.13), now + 0.18);
-  masterGain.gain.setTargetAtTime(Math.max(0.001, volume * 0.095), now + 0.6, 0.55);
+  masterGain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume * 0.055), now + 0.25);
+  masterGain.gain.setTargetAtTime(Math.max(0.001, volume * 0.04), now + 0.7, 0.6);
   masterGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
   hum.connect(humGain);
-  humGain.connect(masterGain);
+  humGain.connect(compressor);
   rumble.connect(rumbleGain);
-  rumbleGain.connect(masterGain);
-  noise.connect(noiseLowFilter);
-  noiseLowFilter.connect(noiseAirFilter);
-  noiseAirFilter.connect(noiseGain);
-  noiseGain.connect(masterGain);
+  rumbleGain.connect(compressor);
+  noise.connect(motorNoiseFilter);
+  motorNoiseFilter.connect(motorNoiseGain);
+  motorNoiseGain.connect(compressor);
+  noise.connect(airNoiseFilter);
+  airNoiseFilter.connect(airNoiseGain);
+  airNoiseGain.connect(compressor);
+  airLfo.connect(airLfoGain);
+  airLfoGain.connect(airNoiseGain.gain);
+  compressor.connect(masterGain);
   masterGain.connect(audioContext.destination);
 
   hum.start(now);
   rumble.start(now);
   noise.start(now);
+  airLfo.start(now);
   hum.stop(now + duration + 0.03);
   rumble.stop(now + duration + 0.03);
   noise.stop(now + duration + 0.03);
-  vacuumLoop = { hum, rumble, noise, masterGain, endTime: now + duration };
+  airLfo.stop(now + duration + 0.03);
+  vacuumLoop = { hum, rumble, noise, airLfo, masterGain, endTime: now + duration };
   window.setTimeout(() => {
     if (vacuumLoop?.hum === hum) vacuumLoop = null;
   }, Math.ceil((duration + 0.08) * 1000));
@@ -1989,25 +3162,111 @@ function stopVacuumLoop(immediate = false) {
     loop.hum.stop(now + fade + 0.02);
     loop.rumble?.stop(now + fade + 0.02);
     loop.noise.stop(now + fade + 0.02);
+    loop.airLfo?.stop(now + fade + 0.02);
   } catch (error) {
     console.warn("Не удалось остановить звук пылесоса:", error);
   }
 }
 
+function getBubbleNoiseBuffer() {
+  if (!audioContext) return null;
+  if (bubbleNoiseBuffer?.sampleRate === audioContext.sampleRate) return bubbleNoiseBuffer;
+
+  const bufferSize = Math.max(1, Math.floor(audioContext.sampleRate * 0.14));
+  const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i += 1) {
+    const envelope = 1 - i / bufferSize;
+    data[i] = (Math.random() * 2 - 1) * envelope;
+  }
+  bubbleNoiseBuffer = buffer;
+  return buffer;
+}
+
+function playBubblePop() {
+  if (progress.soundMuted || !audioContext) return;
+
+  const now = audioContext.currentTime;
+  const body = audioContext.createOscillator();
+  const bodyGain = audioContext.createGain();
+  const tick = audioContext.createOscillator();
+  const tickGain = audioContext.createGain();
+  const tickFilter = audioContext.createBiquadFilter();
+  const bodyFilter = audioContext.createBiquadFilter();
+  const noise = audioContext.createBufferSource();
+  const noiseFilter = audioContext.createBiquadFilter();
+  const noiseGain = audioContext.createGain();
+  const peak = Math.max(0.001, getSoundVolume());
+
+  body.type = "sine";
+  body.frequency.setValueAtTime(470, now);
+  body.frequency.exponentialRampToValueAtTime(145, now + 0.12);
+  bodyFilter.type = "lowpass";
+  bodyFilter.frequency.setValueAtTime(1250, now);
+  bodyFilter.Q.setValueAtTime(0.35, now);
+  bodyGain.gain.setValueAtTime(0.001, now);
+  bodyGain.gain.exponentialRampToValueAtTime(peak * 0.065, now + 0.006);
+  bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+
+  tick.type = "triangle";
+  tick.frequency.setValueAtTime(760, now);
+  tick.frequency.exponentialRampToValueAtTime(340, now + 0.055);
+  tickFilter.type = "lowpass";
+  tickFilter.frequency.setValueAtTime(1200, now);
+  tickFilter.Q.setValueAtTime(0.35, now);
+  tickGain.gain.setValueAtTime(0.001, now);
+  tickGain.gain.exponentialRampToValueAtTime(peak * 0.014, now + 0.003);
+  tickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+
+  noiseFilter.type = "lowpass";
+  noiseFilter.frequency.setValueAtTime(1650, now);
+  noiseFilter.Q.setValueAtTime(0.35, now);
+  noiseGain.gain.setValueAtTime(peak * 0.035, now);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+
+  body.connect(bodyFilter);
+  bodyFilter.connect(bodyGain);
+  bodyGain.connect(audioContext.destination);
+  tick.connect(tickFilter);
+  tickFilter.connect(tickGain);
+  tickGain.connect(audioContext.destination);
+
+  const bubbleBuffer = getBubbleNoiseBuffer();
+  if (bubbleBuffer) {
+    noise.buffer = bubbleBuffer;
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(audioContext.destination);
+    noise.start(now);
+    noise.stop(now + 0.15);
+  }
+
+  body.start(now);
+  tick.start(now);
+  body.stop(now + 0.16);
+  tick.stop(now + 0.08);
+}
+
 function playSound(type) {
   if (progress.soundMuted || !audioContext) return;
+
+  if (type === "pop") {
+    playBubblePop();
+    return;
+  }
 
   const now = audioContext.currentTime;
   const gain = audioContext.createGain();
   const oscillator = audioContext.createOscillator();
   const settings = {
-    good: [520, 0.05, "sine", 0.05],
-    combo: [760, 0.09, "triangle", 0.07],
-    gold: [920, 0.12, "sine", 0.09],
-    bad: [140, 0.16, "sawtooth", 0.08],
-    buy: [660, 0.08, "square", 0.04],
-    over: [180, 0.28, "triangle", 0.06]
+    good: [450, 0.08, "sine", 0.025],
+    combo: [650, 0.11, "sine", 0.035],
+    gold: [780, 0.14, "sine", 0.045],
+    bad: [165, 0.18, "sine", 0.025],
+    buy: [520, 0.09, "triangle", 0.022],
+    over: [180, 0.26, "sine", 0.03]
   }[type] || [440, 0.06, "sine", 0.04];
+  const filter = audioContext.createBiquadFilter();
 
   oscillator.type = settings[2];
   oscillator.frequency.setValueAtTime(settings[0], now);
@@ -2019,7 +3278,11 @@ function playSound(type) {
 
   gain.gain.setValueAtTime(Math.max(0.001, settings[3] * getSoundVolume()), now);
   gain.gain.exponentialRampToValueAtTime(0.001, now + settings[1]);
-  oscillator.connect(gain);
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(type === "bad" ? 900 : 1400, now);
+  filter.Q.setValueAtTime(0.35, now);
+  oscillator.connect(filter);
+  filter.connect(gain);
   gain.connect(audioContext.destination);
   oscillator.start(now);
   oscillator.stop(now + settings[1] + 0.02);
@@ -2057,4 +3320,3 @@ function pick(items) {
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
-

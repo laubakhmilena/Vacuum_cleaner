@@ -159,7 +159,7 @@ python3 -m http.server 8000
 vacuum_cleaner/
 ├── assets/
 │   ├── vacuum_player.png
-│   └── vacuum_player_data.js
+│   └── card/
 ├── QA/
 │   ├── checklists/
 │   ├── evidence/
@@ -177,7 +177,7 @@ vacuum_cleaner/
 | `style.css` | Адаптивное оформление интерфейса |
 | `game.js` | Игровая логика, рендеринг, экономика и интеграции |
 | `assets/vacuum_player.png` | Изображение игрового персонажа |
-| `assets/vacuum_player_data.js` | Встроенная резервная версия изображения |
+| `assets/card/` | Иконка и обложка карточки |
 | `QA/` | Документация, тест-кейсы, чек-листы и отчёты |
 
 ## Хранение прогресса
@@ -222,3 +222,13 @@ https://github.com/laubakhmilena/vacuum_cleaner
 ## Автор
 
 Разработчик проекта: [laubakhmilena](https://github.com/laubakhmilena)
+
+## Обновление 19 октября 2026
+
+Обновлена локальная версия игры: адаптивное меню, RU/EN, сохранение прогресса, SDK и рекламные сценарии. Добавлены tests/, tools/, release/, screenshots/ и videos/.
+
+Для запуска откройте корневой index.html через локальный HTTP-сервер (например, python -m http.server 8000), затем http://localhost:8000. Платформенные SDK и рекламу следует проверять отдельно в Яндекс Играх. Обновление репозитория само по себе не публикует игру на платформе.
+
+
+
+Проверка переноса: синтаксис game.js и все 32 браузерных теста tests/moderation.test.cjs прошли. Тесты используют локальную имитацию SDK.

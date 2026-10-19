@@ -1,0 +1,23 @@
+{
+  "archive": "Пылесос_Пыслей_финальный_релиз_2026-09-18.zip",
+  "bytes": 213919,
+  "sha256": "96d546e76a0a17b3dce4cbd177e44f9bad4225cdf084e68e414204131f15f616",
+  "files": [
+    {
+      "name": "index.html",
+      "sha256": "50e08071d36a043cc1a9a460c1b347b17d9531d5005e7b9b0c1c0f7e1b7b1ef5"
+    },
+    {
+      "name": "style.css",
+      "sha256": "a783f72b5d694cf15cc5182ba6361acc8d34539176217536e9ee397645a8422d"
+    },
+    {
+      "name": "game.js",
+      "sha256": "fd958f2c517af401ac1cb3ec25aac2bc3a5707ff173c2298b6ffa719865b670c"
+    },
+    {
+      "name": "assets/vacuum_player.png",
+      "sha256": "b04ae8b1704ebf07cae0de893f631368abbb3ba92adb64792e9b065f08518599"
+    }
+  ]
+}

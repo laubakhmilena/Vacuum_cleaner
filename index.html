@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
@@ -9,17 +9,16 @@
   <link rel="icon" href="assets/vacuum_player.png" type="image/png">
   <link rel="stylesheet" href="style.css">
   <script src="/sdk.js"></script>
-  <script src="assets/vacuum_player_data.js"></script>
 </head>
-<body>
+<body data-starting inert aria-busy="true">
   <img id="vacuumPreload" src="assets/vacuum_player.png" alt="" aria-hidden="true" decoding="async" fetchpriority="high" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;">
   <canvas id="gameCanvas" aria-label="Игровое поле"></canvas>
 
   <main class="ui-shell">
     <section id="menuScreen" class="screen screen-active">
       <div class="panel title-panel">
-        <p class="eyebrow">милая canvas-игра</p>
-        <h1>Пылесос Пыслей</h1>
+        <p class="eyebrow">Уютная аркада</p>
+        <h1 id="menuTitle" tabindex="-1">Пылесос Пыслей</h1>
         <p class="lead">Управляй милым пылесосом с магической аурой: собирай хорошие мысли, избегай вредных и лови золотые бонусы.</p>
         <div class="best-row">Лучший результат: <strong id="menuBestScore">0</strong></div>
         <div id="dailyRewardCard" class="daily-card">
@@ -29,7 +28,10 @@
           </div>
           <button id="dailyRewardButton">★ 3</button>
         </div>
-        <button id="playButton" class="primary-button">Играть</button>
+        <div class="menu-actions">
+          <button id="continueButton" class="primary-button hidden" type="button">Продолжить игру</button>
+          <button id="playButton" class="primary-button">Играть</button>
+        </div>
         <button id="upgradesButton" class="secondary-button">Улучшения</button>
       </div>
     </section>
@@ -39,7 +41,7 @@
         <div class="panel-head">
           <div>
             <p class="eyebrow">мастерская</p>
-            <h2>Улучшения</h2>
+            <h2 id="upgradesTitle" tabindex="-1">Улучшения</h2>
           </div>
           <div class="stars-badge">★ <span id="starsCount">0</span></div>
         </div>
@@ -65,11 +67,13 @@
           </div>
           <div id="dailyTasksList" class="daily-tasks-list"></div>
         </div>
+        <button id="resetProgressButton" class="danger-button" type="button">Сброс прогресса</button>
         <button id="backFromUpgradesButton" class="secondary-button">Назад</button>
       </div>
     </section>
 
     <section id="gameScreen" class="screen game-ui">
+      <h2 id="gameRoundTitle" class="sr-only" tabindex="-1">Игровой раунд</h2>
       <div class="hud">
         <div class="hud-item"><span>Очки</span><strong id="hudScore">0</strong></div>
         <div class="hud-item"><span>Жизни</span><strong id="hudLives">♥♥♥</strong></div>
@@ -83,12 +87,13 @@
     <section id="gameOverScreen" class="screen">
       <div class="panel result-panel">
         <p class="eyebrow">поток очищен</p>
-        <h2>Игра окончена</h2>
+        <h2 id="resultTitle" tabindex="-1">Игра окончена</h2>
         <div class="result-grid">
           <div><span>Очки</span><strong id="finalScore">0</strong></div>
           <div><span>Лучший</span><strong id="finalBestScore">0</strong></div>
           <div><span>Звезды</span><strong id="earnedStars">0</strong></div>
         </div>
+        <p id="adNotice" class="ad-notice hidden" role="status" aria-live="polite"></p>
         <div class="reward-actions">
           <button id="reviveAdButton" class="reward-button">Смотреть рекламу: +1 жизнь</button>
           <button id="doubleStarsAdButton" class="reward-button">Смотреть рекламу: x2 звезды</button>
@@ -99,13 +104,18 @@
     </section>
   </main>
 
+  <dialog id="resetDialog" class="reset-dialog" aria-labelledby="resetDialogTitle" aria-describedby="resetDialogText">
+    <h2 id="resetDialogTitle">Сбросить весь прогресс?</h2>
+    <p id="resetDialogText">Будут удалены лучший результат, звезды, улучшения, бустеры, скины, ежедневные задания и незавершенный раунд. Действие необратимо.</p>
+    <div class="dialog-actions">
+      <button id="resetCancelButton" class="secondary-button" type="button">Отмена</button>
+      <button id="resetConfirmButton" class="danger-button" type="button">Сбросить</button>
+    </div>
+  </dialog>
+
   <script src="game.js"></script>
 </body>
 </html>
-
-
-
-
 
 
 
